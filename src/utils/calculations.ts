@@ -126,6 +126,42 @@ function multipleRegression(X: number[][], Y: number[]): number[] | null {
   return Beta;
 }
 
+export const calculateDayOfWeekPredictions = (
+  visitors: DailyVisitor[],
+  storeId: string,
+  targetYearMonth: string
+) => {
+  const storeVisitors = visitors.filter(v => v.storeId === storeId);
+  const dayOfWeekData: Record<number, { total: number; count: number }> = {
+    1: { total: 0, count: 0 }, // Mon
+    2: { total: 0, count: 0 }, // Tue
+    3: { total: 0, count: 0 }, // Wed
+    4: { total: 0, count: 0 }, // Thu
+    5: { total: 0, count: 0 }, // Fri
+    6: { total: 0, count: 0 }, // Sat
+    0: { total: 0, count: 0 }, // Sun
+  };
+
+  storeVisitors.forEach(v => {
+    const d = new Date(v.date);
+    const dow = d.getDay();
+    dayOfWeekData[dow].total += v.visitors;
+    dayOfWeekData[dow].count += 1;
+  });
+
+  const overallAvg = storeVisitors.length > 0 
+    ? storeVisitors.reduce((sum, v) => sum + v.visitors, 0) / storeVisitors.length 
+    : 0;
+
+  const dowIndices: Record<number, number> = {};
+  [0, 1, 2, 3, 4, 5, 6].forEach(dow => {
+    const avg = dayOfWeekData[dow].count > 0 ? dayOfWeekData[dow].total / dayOfWeekData[dow].count : overallAvg;
+    dowIndices[dow] = overallAvg > 0 ? avg / overallAvg : 1;
+  });
+
+  return dowIndices;
+};
+
 export const calculatePredictions = (
   visitors: DailyVisitor[],
   factors: ExternalFactor[],
@@ -251,13 +287,35 @@ export const calculatePredictions = (
   const forecastW = Math.max(0, forecastWBase * seasonalIndexW);
   const forecastH = Math.max(0, forecastHBase * seasonalIndexH);
 
+  const dowIndices = calculateDayOfWeekPredictions(visitors, storeId, targetYearMonth);
+
+  // Generate daily predictions for the target month
+  const [targetYear, targetMonth] = targetYearMonth.split('-').map(Number);
+  const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+  const preds: { date: string; visitors: number }[] = [];
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${targetYearMonth}-${String(d).padStart(2, '0')}`;
+    const date = new Date(dateStr);
+    const dow = date.getDay();
+    const isHoliday = dow === 0 || dow === 6; // Simple holiday check for now
+    const base = isHoliday ? predictedH : predictedW;
+    const dowIndex = dowIndices[dow] || 1;
+    preds.push({
+      date: dateStr,
+      visitors: Math.round(base * dowIndex)
+    });
+  }
+
   return {
     predictedW,
     predictedH,
     forecastW,
     forecastH,
     seasonalIndexW,
-    seasonalIndexH
+    seasonalIndexH,
+    dowIndices,
+    preds
   };
 };
 

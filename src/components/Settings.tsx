@@ -1,12 +1,42 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { getDaysInMonth } from '../utils/calculations';
+import { RotateCcw, Database } from 'lucide-react';
+import { DataManagement } from './DataManagement';
 
 export const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'stores' | 'staffs' | 'visitors' | 'factors'>('stores');
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const { resetAllData } = useAppContext();
+
+  const handleReset = () => {
+    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
+      resetAllData();
+    }
+  };
 
   return (
     <div className="p-6 bg-neutral-100 min-h-screen">
+      <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-neutral-900">マスタ設定</h1>
+        <div className="flex space-x-3">
+          <button 
+            onClick={() => setIsDataModalOpen(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
+          >
+            <Database className="w-4 h-4 text-indigo-600" />
+            <span>JSONコード入力・出力</span>
+          </button>
+          <button 
+            onClick={handleReset}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>オールリセット</span>
+          </button>
+        </div>
+      </div>
+
       <div className="max-w-7xl mx-auto bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
         <div className="flex border-b border-neutral-200 bg-neutral-50">
           <button onClick={() => setActiveTab('stores')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'stores' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>店舗マスタ</button>
@@ -22,6 +52,7 @@ export const Settings: React.FC = () => {
           {activeTab === 'factors' && <FactorSettings />}
         </div>
       </div>
+      {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
     </div>
   );
 };
@@ -92,8 +123,9 @@ const StaffSettings = () => {
     const text = e.clipboardData.getData('text');
     const values = text.split(/\t|,|\s+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
     if (values.length > 0) {
+      // 貼り付けられた数値の単純平均を「個体能力（出勤1日あたりの能力）」として採用
       const avg = values.reduce((a, b) => a + b, 0) / values.length;
-      handleChange(index, 'capacity', Math.round((avg / 12) * 10) / 10);
+      handleChange(index, 'capacity', Math.round(avg * 10) / 10);
       e.currentTarget.value = ''; // clear input after paste
     }
   };
@@ -106,7 +138,7 @@ const StaffSettings = () => {
             <th className="p-3">ID</th>
             <th className="p-3">氏名</th>
             <th className="p-3">研修生</th>
-            <th className="p-3">1日能力</th>
+            <th className="p-3">個体能力</th>
             <th className="p-3">契約公休数</th>
             <th className="p-3">過去実績ペースト (自動計算)</th>
           </tr>

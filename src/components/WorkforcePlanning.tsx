@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { getDayCountsInMonth, calculatePredictions, calculateRequiredStaff, calculateMonthsOpen, calculateBudgetBasedPredictions } from '../utils/calculations';
-import { Users, Calendar, Calculator, CheckCircle, Plus, Trash2, TrendingUp, Copy } from 'lucide-react';
+import { Users, Calendar, Calculator, CheckCircle, Plus, Trash2, TrendingUp, Copy, RotateCcw, Database } from 'lucide-react';
 import { StoreWorkforcePlan, StaffWorkforceDetail } from '../types';
+import { InfoTooltip as Tooltip } from './InfoTooltip';
+import { DataManagement } from './DataManagement';
 
 interface WorkforcePlanningProps {
   currentYearMonth: string;
@@ -10,9 +12,23 @@ interface WorkforcePlanningProps {
 }
 
 export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYearMonth, setCurrentYearMonth }) => {
-  const { stores, staffs, visitors, factors, allocations, setAllocations, storeWorkforcePlans, setStoreWorkforcePlans, staffWorkforceDetails, setStaffWorkforceDetails, budgets, setBudgets } = useAppContext();
+  const { stores, staffs, visitors, factors, allocations, setAllocations, storeWorkforcePlans, setStoreWorkforcePlans, staffWorkforceDetails, setStaffWorkforceDetails, budgets, setBudgets, resetAllData } = useAppContext();
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+
+  const handleReset = () => {
+    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
+      resetAllData();
+    }
+  };
 
   const dayCounts = getDayCountsInMonth(currentYearMonth);
+
+  const allAllocatedStaffIds = React.useMemo(() => {
+    return allocations
+      .filter(a => a.yearMonth === currentYearMonth)
+      .flatMap(a => a.slots)
+      .filter(Boolean) as string[];
+  }, [allocations, currentYearMonth]);
 
   const handleStorePlanChange = (storeId: string, field: keyof StoreWorkforcePlan, value: number) => {
     setStoreWorkforcePlans(prev => {
@@ -23,6 +39,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
         return [...prev, {
           storeId, yearMonth: currentYearMonth,
           mondayCount: 0, tuesdayCount: 0, wednesdayCount: 0, thursdayCount: 0, fridayCount: 0, saturdayCount: 0, sundayHolidayCount: 0,
+          mondayAdjustment: 0, tuesdayAdjustment: 0, wednesdayAdjustment: 0, thursdayAdjustment: 0, fridayAdjustment: 0, saturdayAdjustment: 0, sundayHolidayAdjustment: 0,
           [field]: value
         }];
       }
@@ -37,7 +54,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       } else {
         return [...prev, {
           staffId, yearMonth: currentYearMonth,
-          extraWorkDays: 0, paidLeaveDays: 0, supportDays: 0, trainingDays: 0,
+          extraWorkDays: 0, paidLeaveDays: 0, supportDays: 0, trainingDays: 0, daysOffAdjustment: 0,
           [field]: value
         }];
       }
@@ -178,6 +195,9 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
   let totalCapacityAll = 0;
   let totalPredictedVisitorsAll = 0;
   let totalCapacityShortageAll = 0;
+  let totalDaysOffAll = 0;
+  let totalBaseManDaysAll = 0;
+  let totalCapacitySumAll = 0;
 
   const storeRows = stores.map(store => {
     const allocation = allocations.find(a => a.storeId === store.id && a.yearMonth === currentYearMonth);
@@ -187,10 +207,26 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     const staffCount = staffsInStore.length;
     const totalManDays = staffCount * dayCounts.total;
     const totalDaysOff = staffsInStore.reduce((sum, s) => sum + s.daysOff, 0);
-    const netManDays = totalManDays - totalDaysOff;
+    
+    const storeStaffDetails = staffWorkforceDetails.filter(d => 
+      d.yearMonth === currentYearMonth && 
+      staffIds.includes(d.staffId)
+    );
 
-    const totalCapacity = staffsInStore.reduce((sum, s) => sum + ((dayCounts.total - s.daysOff) * s.capacity), 0);
-    const averageCapacity = staffsInStore.length > 0 ? Math.round(staffsInStore.reduce((sum, s) => sum + s.capacity, 0) / staffsInStore.length) : 0;
+    const totalExtraWorkDays = storeStaffDetails.reduce((sum, d) => sum + (d.extraWorkDays || 0), 0);
+    const totalPaidLeaveDays = storeStaffDetails.reduce((sum, d) => sum + (d.paidLeaveDays || 0), 0);
+    const totalSupportDays = storeStaffDetails.reduce((sum, d) => sum + (d.supportDays || 0), 0);
+    const totalTrainingDays = storeStaffDetails.reduce((sum, d) => sum + (d.trainingDays || 0), 0);
+    const totalDaysOffAdjustment = storeStaffDetails.reduce((sum, d) => sum + (d.daysOffAdjustment || 0), 0);
+
+    const netManDays = (totalManDays - totalDaysOff - totalDaysOffAdjustment) + totalExtraWorkDays - totalPaidLeaveDays - totalSupportDays - totalTrainingDays;
+
+    const totalCapacity = staffsInStore.reduce((sum, s) => {
+      const detail = storeStaffDetails.find(d => d.staffId === s.id);
+      const adj = detail?.daysOffAdjustment || 0;
+      return sum + ((dayCounts.total - s.daysOff - adj) * s.capacity);
+    }, 0);
+    const totalCapacitySum = staffsInStore.reduce((sum, s) => sum + s.capacity, 0);
 
     const monthsOpen = calculateMonthsOpen(store.openDate, currentYearMonth);
     const preds = calculatePredictions(visitors, factors, store.id, currentYearMonth);
@@ -209,6 +245,25 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     const aiRecommendedW = aiReqs.requiredW;
     const aiRecommendedH = aiReqs.requiredH;
     const aiRecommendedManDays = (aiRecommendedW * weekdayDays) + (aiRecommendedH * weekendDays);
+
+    // Calculate day-of-week specific recommended staff based on AI predictions
+    const aiRecByDay = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+      const dowPreds = (preds.preds || []).filter(p => new Date(p.date).getDay() === dow);
+      if (dowPreds.length === 0) return 0;
+      const avgVisitors = dowPreds.reduce((sum, p) => sum + p.visitors, 0) / dowPreds.length;
+      const req = calculateRequiredStaff(store, avgVisitors, avgVisitors, monthsOpen);
+      return req.requiredW;
+    });
+
+    const aiRecs = {
+      sun: aiRecByDay[0],
+      mon: aiRecByDay[1],
+      tue: aiRecByDay[2],
+      wed: aiRecByDay[3],
+      thu: aiRecByDay[4],
+      fri: aiRecByDay[5],
+      sat: aiRecByDay[6]
+    };
 
     // Budget Base
     let budgetPredictedW = 0;
@@ -236,26 +291,37 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     const activeRecommendedH = budget > 0 ? budgetRecommendedH : aiRecommendedH;
     const activeRecommendedManDays = budget > 0 ? budgetRecommendedManDays : aiRecommendedManDays;
 
-    const shortage = netManDays - activeRecommendedManDays;
-    const capacityShortage = totalCapacity - activeMonthlyPredictedVisitors;
+    const activeRecs = {
+      mon: budget > 0 ? budgetRecommendedW : aiRecs.mon,
+      tue: budget > 0 ? budgetRecommendedW : aiRecs.tue,
+      wed: budget > 0 ? budgetRecommendedW : aiRecs.wed,
+      thu: budget > 0 ? budgetRecommendedW : aiRecs.thu,
+      fri: budget > 0 ? budgetRecommendedW : aiRecs.fri,
+      sat: budget > 0 ? budgetRecommendedH : aiRecs.sat,
+      sun: budget > 0 ? budgetRecommendedH : aiRecs.sun
+    };
 
     const plan = storeWorkforcePlans.find(p => p.storeId === store.id && p.yearMonth === currentYearMonth) || {
       storeId: store.id, yearMonth: currentYearMonth,
       mondayCount: 0, tuesdayCount: 0, wednesdayCount: 0, thursdayCount: 0, fridayCount: 0, saturdayCount: 0, sundayHolidayCount: 0,
+      mondayAdjustment: 0, tuesdayAdjustment: 0, wednesdayAdjustment: 0, thursdayAdjustment: 0, fridayAdjustment: 0, saturdayAdjustment: 0, sundayHolidayAdjustment: 0,
       partTimeStaff: []
     };
 
     const partTimeStaff = plan.partTimeStaff || [];
     const partTimeTotal = partTimeStaff.reduce((sum, s) => sum + (s.days || 0), 0);
 
-    const monMD = plan.mondayCount * dayCounts.monday;
-    const tueMD = plan.tuesdayCount * dayCounts.tuesday;
-    const wedMD = plan.wednesdayCount * dayCounts.wednesday;
-    const thuMD = plan.thursdayCount * dayCounts.thursday;
-    const friMD = plan.fridayCount * dayCounts.friday;
-    const satMD = plan.saturdayCount * dayCounts.saturday;
-    const sunMD = plan.sundayHolidayCount * dayCounts.sundayHoliday;
+    const monMD = plan.mondayCount * (dayCounts.monday + (plan.mondayAdjustment || 0));
+    const tueMD = plan.tuesdayCount * (dayCounts.tuesday + (plan.tuesdayAdjustment || 0));
+    const wedMD = plan.wednesdayCount * (dayCounts.wednesday + (plan.wednesdayAdjustment || 0));
+    const thuMD = plan.thursdayCount * (dayCounts.thursday + (plan.thursdayAdjustment || 0));
+    const friMD = plan.fridayCount * (dayCounts.friday + (plan.fridayAdjustment || 0));
+    const satMD = plan.saturdayCount * (dayCounts.saturday + (plan.saturdayAdjustment || 0));
+    const sunMD = plan.sundayHolidayCount * (dayCounts.sundayHoliday + (plan.sundayHolidayAdjustment || 0));
     const totalPlanned = monMD + tueMD + wedMD + thuMD + friMD + satMD + sunMD;
+
+    const shortage = netManDays - totalPlanned;
+    const capacityShortage = totalCapacity - activeMonthlyPredictedVisitors;
 
     totalStaffCount += staffCount;
     totalNetManDaysAll += netManDays;
@@ -265,6 +331,9 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     totalCapacityAll += totalCapacity;
     totalPredictedVisitorsAll += activeMonthlyPredictedVisitors;
     totalCapacityShortageAll += capacityShortage;
+    totalDaysOffAll += totalDaysOff;
+    totalBaseManDaysAll += (totalManDays - totalDaysOff);
+    totalCapacitySumAll += totalCapacitySum;
 
     return {
       store,
@@ -274,7 +343,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       totalDaysOff,
       netManDays,
       totalCapacity,
-      averageCapacity,
+      totalCapacitySum,
       recommendedManDays: activeRecommendedManDays,
       shortage,
       monthlyPredictedVisitors: activeMonthlyPredictedVisitors,
@@ -284,6 +353,8 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       preds,
       recommendedW: activeRecommendedW,
       recommendedH: activeRecommendedH,
+      totalTrainingDays,
+      totalDaysOffAdjustment,
       partTimeStaff,
       partTimeTotal,
       aiMonthlyPredictedVisitors,
@@ -291,9 +362,41 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       budgetMonthlyPredictedVisitors,
       budgetRecommendedManDays,
       aiRecommendedW,
-      budgetRecommendedW
+      budgetRecommendedW,
+      totalExtraWorkDays,
+      totalPaidLeaveDays,
+      totalSupportDays,
+      aiRecs,
+      activeRecs
     };
   });
+
+  const grandTotals = {
+    aiVisitors: storeRows.reduce((sum, r) => sum + r.aiMonthlyPredictedVisitors, 0),
+    budget: storeRows.reduce((sum, r) => sum + r.budgetMonthlyPredictedVisitors, 0),
+    netManDays: storeRows.reduce((sum, r) => sum + r.netManDays, 0),
+    recommendedManDays: storeRows.reduce((sum, r) => sum + r.recommendedManDays, 0),
+    totalCapacity: storeRows.reduce((sum, r) => sum + r.totalCapacity, 0),
+    predictedVisitors: storeRows.reduce((sum, r) => sum + r.monthlyPredictedVisitors, 0),
+    monMD: storeRows.reduce((sum, r) => sum + r.monMD, 0),
+    tueMD: storeRows.reduce((sum, r) => sum + r.tueMD, 0),
+    wedMD: storeRows.reduce((sum, r) => sum + r.wedMD, 0),
+    thuMD: storeRows.reduce((sum, r) => sum + r.thuMD, 0),
+    friMD: storeRows.reduce((sum, r) => sum + r.friMD, 0),
+    satMD: storeRows.reduce((sum, r) => sum + r.satMD, 0),
+    sunMD: storeRows.reduce((sum, r) => sum + r.sunMD, 0),
+    totalPlanned: storeRows.reduce((sum, r) => sum + r.totalPlanned, 0),
+    extra: storeRows.reduce((sum, r) => sum + r.totalExtraWorkDays, 0),
+    paid: storeRows.reduce((sum, r) => sum + r.totalPaidLeaveDays, 0),
+    support: storeRows.reduce((sum, r) => sum + r.totalSupportDays, 0),
+    training: storeRows.reduce((sum, r) => sum + r.totalTrainingDays, 0),
+    leave: storeRows.reduce((sum, r) => sum + (r.totalDaysOffAdjustment || 0), 0),
+    shortage: storeRows.reduce((sum, r) => sum + r.shortage, 0),
+    partTimeTotal: storeRows.reduce((sum, r) => sum + r.partTimeTotal, 0),
+    totalBaseManDays: totalBaseManDaysAll,
+    totalDaysOff: totalDaysOffAll,
+    totalCapacitySum: totalCapacitySumAll,
+  };
 
   return (
     <div className="p-6 max-w-[1800px] mx-auto space-y-8">
@@ -303,6 +406,20 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
           <p className="text-neutral-600">店舗ごとのスタッフ配置と、曜日別の稼働計画を入力します。ダッシュボードの配置にも反映されます。</p>
         </div>
         <div className="flex items-center space-x-4">
+          <button 
+            onClick={() => setIsDataModalOpen(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
+          >
+            <Database className="w-4 h-4 text-indigo-600" />
+            <span>JSONコード入力・出力</span>
+          </button>
+          <button 
+            onClick={handleReset}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>オールリセット</span>
+          </button>
           <button 
             onClick={handleCopyFromPreviousMonth}
             className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg border border-neutral-200 shadow-sm hover:bg-neutral-50 text-neutral-700 transition-colors"
@@ -328,50 +445,85 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
           <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><Users size={24} /></div>
           <div>
             <p className="text-sm text-neutral-500 font-medium">総スタッフ数</p>
-            <p className="text-2xl font-bold text-neutral-900">{totalStaffCount}<span className="text-sm font-normal text-neutral-500 ml-1">人</span></p>
+            <Tooltip content="店舗に配属されている全スタッフの人数です。" position="bottom">
+              <p className="text-2xl font-bold text-neutral-900 cursor-help">{totalStaffCount}<span className="text-sm font-normal text-neutral-500 ml-1">人工</span></p>
+            </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg"><CheckCircle size={24} /></div>
           <div>
             <p className="text-sm text-neutral-500 font-medium">確保人工数 / 必要人工数</p>
-            <p className="text-2xl font-bold text-neutral-900">
-              {totalNetManDaysAll} <span className="text-sm font-normal text-neutral-500">/ {totalRecommendedManDaysAll} 日</span>
-            </p>
+            <Tooltip content={
+              <div className="space-y-1">
+                <p>確保：スタッフの出勤可能日数の合計</p>
+                <p>必要：AI予測客数に基づく推奨人工数</p>
+                <p className="text-[10px] opacity-70 border-t border-white/20 pt-1">計算: Σ(月間日数 - 公休数) / Σ(日別必要数)</p>
+              </div>
+            } position="bottom">
+              <p className="text-2xl font-bold text-neutral-900 cursor-help">
+                {totalNetManDaysAll} <span className="text-sm font-normal text-neutral-500">/ {totalRecommendedManDaysAll} 人工</span>
+              </p>
+            </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className={`p-3 rounded-lg ${totalShortageAll < 0 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}><TrendingUp size={24} /></div>
           <div>
             <p className="text-sm text-neutral-500 font-medium">応援必要数 (過不足)</p>
-            <p className={`text-2xl font-bold ${totalShortageAll < 0 ? 'text-red-600' : 'text-blue-600'}`}>
-              {totalShortageAll > 0 ? `+${totalShortageAll}` : totalShortageAll}<span className="text-sm font-normal ml-1">日</span>
-            </p>
+            <Tooltip content={
+              <div className="space-y-1">
+                <p>確保人工数 - 計画計 + 時短パート合計</p>
+                <p>プラス：人員に余裕あり</p>
+                <p>マイナス：人員不足（応援が必要）</p>
+              </div>
+            } position="bottom">
+              <p className={`text-2xl font-bold cursor-help ${totalShortageAll < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                {totalShortageAll > 0 ? `+${totalShortageAll}` : totalShortageAll}<span className="text-sm font-normal ml-1">人工</span>
+              </p>
+            </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg"><Calculator size={24} /></div>
           <div>
-            <p className="text-sm text-neutral-500 font-medium">確保総能力 / 予測客数</p>
-            <p className="text-2xl font-bold text-neutral-900">
-              {totalCapacityAll} <span className="text-sm font-normal text-neutral-500">/ {totalPredictedVisitorsAll} 人</span>
-            </p>
+            <p className="text-sm text-neutral-500 font-medium">平均供給力 / 予測客数 (1日当り)</p>
+            <Tooltip content={
+              <div className="space-y-1">
+                <p>供給：スタッフの公休を考慮した1日あたりの平均供給力</p>
+                <p>予測：1日あたりの予測客数（AIまたは予算）</p>
+                <p className="text-[10px] opacity-70 border-t border-white/20 pt-1">計算: Σ(月間供給力) / 月間日数</p>
+              </div>
+            } position="bottom">
+              <p className="text-2xl font-bold text-neutral-900 cursor-help">
+                {Math.round(totalCapacityAll / (dayCounts.total || 1))} <span className="text-sm font-normal text-neutral-500">/ {Math.round(totalPredictedVisitorsAll / (dayCounts.total || 1))} 人工</span>
+              </p>
+            </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className={`p-3 rounded-lg ${totalCapacityShortageAll < 0 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}><TrendingUp size={24} /></div>
           <div>
-            <p className="text-sm text-neutral-500 font-medium">能力 過不足</p>
-            <p className={`text-2xl font-bold ${totalCapacityShortageAll < 0 ? 'text-red-600' : 'text-indigo-600'}`}>
-              {totalCapacityShortageAll > 0 ? `+${totalCapacityShortageAll}` : totalCapacityShortageAll}<span className="text-sm font-normal ml-1">人</span>
-            </p>
+            <p className="text-sm text-neutral-500 font-medium">平均供給力 過不足 (1日当り)</p>
+            <Tooltip content={
+              <div className="space-y-1">
+                <p>平均供給力 - 予測客数</p>
+                <p>1日あたりのサービス提供能力の余裕度です。</p>
+              </div>
+            } position="bottom">
+              <p className={`text-2xl font-bold cursor-help ${totalCapacityShortageAll < 0 ? 'text-red-600' : 'text-indigo-600'}`}>
+                {totalCapacityShortageAll > 0 ? `+${Math.round(totalCapacityShortageAll / (dayCounts.total || 1))}` : Math.round(totalCapacityShortageAll / (dayCounts.total || 1))}<span className="text-sm font-normal ml-1">人工</span>
+              </p>
+            </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className="p-3 bg-yellow-100 text-yellow-600 rounded-lg"><Calendar size={24} /></div>
           <div>
             <p className="text-sm text-neutral-500 font-medium">計画人工数 (入力値)</p>
-            <p className="text-2xl font-bold text-neutral-900">{totalPlannedManDaysAll}<span className="text-sm font-normal text-neutral-500 ml-1">日</span></p>
+            <Tooltip content="各店舗の稼働計画で入力された人工数の合計値です。" position="bottom">
+              <p className="text-2xl font-bold text-neutral-900 cursor-help">{totalPlannedManDaysAll}<span className="text-sm font-normal text-neutral-500 ml-1">人工</span></p>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -382,28 +534,116 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
           <table className="w-full text-xs text-left border-collapse whitespace-nowrap">
             <thead>
               <tr className="bg-neutral-100 text-neutral-700 border-b border-neutral-300">
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-0 bg-neutral-100 z-20 min-w-[80px]">店舗名</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-[80px] bg-neutral-100 z-20 min-w-[100px]">月間客数<br/><span className="text-[10px] font-normal">(AI/予算)</span></th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-[180px] bg-neutral-100 z-20 min-w-[100px]">氏名</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">公休</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">出勤<br/>可能</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">1日<br/>能力</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">月間<br/>能力</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">月</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">火</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">水</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">木</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">金</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">土</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">日祝</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center bg-yellow-100">計画計</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">公出</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">有休</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">応援</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">研修</th>
-                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center bg-yellow-100 font-bold">過不足</th>
-                <th colSpan={3} className="p-1 border-r border-neutral-300 text-center">時短パート</th>
-                <th rowSpan={2} className="p-1 text-center bg-yellow-100 font-bold text-red-600">応援<br/>必要数</th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-0 bg-neutral-100 z-20 min-w-[80px]">
+                  <Tooltip content="店舗名：対象となる店舗の名称です。" position="bottom-left">
+                    <span className="cursor-help">店舗名</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-[80px] bg-neutral-100 z-20 min-w-[100px]">
+                  <Tooltip content="月間客数：AI予測または予算として設定された月間の総客数です。" position="bottom-left">
+                    <div className="cursor-help">月間客数<br/><span className="text-[10px] font-normal">(AI/予算)</span></div>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 sticky left-[180px] bg-neutral-100 z-20 min-w-[100px]">
+                  <Tooltip content="氏名：店舗に配属されているスタッフの氏名です。" position="bottom-left">
+                    <span className="cursor-help">氏名</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="公休：スタッフの月間の公休日数です。" position="bottom">
+                    <span className="cursor-help">公休</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="確保人工数：月間日数から公休を引いた、スタッフが稼働可能な日数の合計です。" position="bottom">
+                    <span className="cursor-help">確保<br/>人工数</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="合計供給力(1日)：スタッフ全員が1日出勤した場合の、合計のサービス提供能力（対応可能客数）です。" position="bottom">
+                    <span className="cursor-help">合計供給力<br/>(1日)</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="月曜日：月曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">月</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="火曜日：火曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">火</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="水曜日：水曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">水</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="木曜日：木曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">木</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="金曜日：金曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">金</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="土曜日：土曜日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">土</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
+                  <Tooltip content="日曜日・祝日：日曜日・祝日ごとの配置人数と、月間の合計人工数です。" position="bottom">
+                    <span className="cursor-help">日祝</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center bg-yellow-100">
+                  <Tooltip content="計画計：各曜日の配置人数から算出された月間の合計計画人工数です。" position="bottom">
+                    <span className="cursor-help">計画計</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="公出：公休日以外の出勤（休日出勤）による増加人工数です。" position="bottom">
+                    <span className="cursor-help">公出</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="有休：有給休暇の取得による減少人工数です。" position="bottom">
+                    <span className="cursor-help">有休</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="応援：他店への応援派遣による減少人工数です。" position="bottom">
+                    <span className="cursor-help">応援</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="研修：研修参加による減少人工数です。" position="bottom">
+                    <span className="cursor-help">研修</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="休職等：休職や長期休暇による減少人工数です。" position="bottom">
+                    <span className="cursor-help">休職等</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center bg-yellow-100 font-bold">
+                  <Tooltip content="過不足：確保人工数から計画計を引いた値です。マイナスは人員不足を意味します。" position="bottom-right">
+                    <span className="cursor-help">過不足</span>
+                  </Tooltip>
+                </th>
+                <th colSpan={3} className="p-1 border-r border-neutral-300 text-center">
+                  <Tooltip content="時短パート：短時間勤務スタッフの配置状況です。" position="bottom">
+                    <span className="cursor-help">時短パート</span>
+                  </Tooltip>
+                </th>
+                <th rowSpan={2} className="p-1 text-center bg-yellow-100 font-bold text-red-600">
+                  <Tooltip content="応援必要数：過不足に時短パートの出勤日数を加味した、最終的な応援必要数です。" position="bottom-right">
+                    <div className="cursor-help">応援<br/>必要数</div>
+                  </Tooltip>
+                </th>
               </tr>
               <tr className="bg-neutral-100 text-neutral-700 border-b border-neutral-300">
                 <th className="p-1 border-r border-neutral-300 text-center min-w-[80px]">氏名</th>
@@ -438,7 +678,9 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                               <td rowSpan={rowSpan} className="p-1 border-r border-neutral-300 font-bold bg-white sticky left-0 z-10 align-top">{row.store.name}</td>
                               <td rowSpan={rowSpan} className="p-1 border-r border-neutral-300 bg-white sticky left-[80px] z-10 align-top">
                                 <div className="flex flex-col space-y-1">
-                                  <div className="text-[10px] text-neutral-500">AI予測: {row.aiMonthlyPredictedVisitors}人</div>
+                                  <Tooltip content="過去データから重回帰分析または時系列分析で算出した月間予測客数です。">
+                                    <div className="text-[10px] text-neutral-500 cursor-help">AI予測: {row.aiMonthlyPredictedVisitors}人工</div>
+                                  </Tooltip>
                                   <div className="flex items-center space-x-1">
                                     <span className="text-[10px] text-neutral-500">予算:</span>
                                     <input 
@@ -461,66 +703,237 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                 店舗集計<br/>
                                 <span className="text-[10px] text-neutral-400">({row.staffCount}名)</span>
                               </td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center text-xs text-neutral-600 align-middle">
+                                {row.totalDaysOff}
+                              </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center text-xs text-neutral-500 align-middle">
-                                人工数<br/>
-                                <span className={`font-bold ${row.shortage < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                  {row.shortage > 0 ? `+${row.shortage}` : row.shortage}
-                                </span>
+                                確保合計<br/>
+                                <Tooltip content="スタッフの稼働可能日数（月間日数 - 公休数）の合計です。">
+                                  <span className="font-bold text-neutral-700 cursor-help">
+                                    {row.totalManDays - row.totalDaysOff}人工
+                                  </span>
+                                </Tooltip>
                               </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
-                                <div className="text-xs text-blue-600 font-bold">{row.netManDays}</div>
-                                <div className="text-[10px] text-neutral-400 border-t border-neutral-200 mt-1 pt-1">必:{row.recommendedManDays}</div>
-                              </td>
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
-                                <div className="text-xs text-indigo-600 font-bold">平:{row.averageCapacity}</div>
-                              </td>
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
-                                <div className="text-xs text-indigo-600 font-bold">{row.totalCapacity}</div>
-                                <div className="text-[10px] text-neutral-400 border-t border-neutral-200 mt-1 pt-1">予:{row.monthlyPredictedVisitors}</div>
+                                <Tooltip content="スタッフ全員の1日あたりの処理能力（対応可能客数）の合計です。">
+                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.totalCapacitySum}人工</div>
+                                </Tooltip>
                               </td>
                               
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedW} / 予算: ${row.budgetRecommendedW}`}>推:{row.recommendedW}</div>
-                                <input type="number" min="0" value={row.plan.mondayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'mondayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.monMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(月曜): {row.aiRecs.mon} / 予算: {row.budgetRecommendedW}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.mon}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.mondayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'mondayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.mondayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'mondayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間月曜日数(${dayCounts.monday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.monMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedW} / 予算: ${row.budgetRecommendedW}`}>推:{row.recommendedW}</div>
-                                <input type="number" min="0" value={row.plan.tuesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'tuesdayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.tueMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(火曜): {row.aiRecs.tue} / 予算: {row.budgetRecommendedW}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.tue}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.tuesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'tuesdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.tuesdayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'tuesdayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間火曜日数(${dayCounts.tuesday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.tueMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedW} / 予算: ${row.budgetRecommendedW}`}>推:{row.recommendedW}</div>
-                                <input type="number" min="0" value={row.plan.wednesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'wednesdayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.wedMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(水曜): {row.aiRecs.wed} / 予算: {row.budgetRecommendedW}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.wed}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.wednesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'wednesdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.wednesdayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'wednesdayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間水曜日数(${dayCounts.wednesday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.wedMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedW} / 予算: ${row.budgetRecommendedW}`}>推:{row.recommendedW}</div>
-                                <input type="number" min="0" value={row.plan.thursdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'thursdayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.thuMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(木曜): {row.aiRecs.thu} / 予算: {row.budgetRecommendedW}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.thu}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.thursdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'thursdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.thursdayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'thursdayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間木曜日数(${dayCounts.thursday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.thuMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedW} / 予算: ${row.budgetRecommendedW}`}>推:{row.recommendedW}</div>
-                                <input type="number" min="0" value={row.plan.fridayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'fridayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.friMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(金曜): {row.aiRecs.fri} / 予算: {row.budgetRecommendedW}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.fri}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.fridayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'fridayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.fridayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'fridayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間金曜日数(${dayCounts.friday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.friMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedH} / 予算: ${row.budgetRecommendedH}`}>推:{row.recommendedH}</div>
-                                <input type="number" min="0" value={row.plan.saturdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'saturdayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.satMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(土曜): {row.aiRecs.sat} / 予算: {row.budgetRecommendedH}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.sat}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.saturdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'saturdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.saturdayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'saturdayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間土曜日数(${dayCounts.saturday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.satMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               <td className="p-1 border-r border-neutral-300 align-top bg-white">
-                                <div className="text-[10px] text-neutral-400 text-center mb-1" title={`AI予測: ${row.aiRecommendedH} / 予算: ${row.budgetRecommendedH}`}>推:{row.recommendedH}</div>
-                                <input type="number" min="0" value={row.plan.sundayHolidayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'sundayHolidayCount', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
-                                <div className="text-[10px] text-blue-600 text-center mt-1 font-bold">{row.sunMD}</div>
+                                <Tooltip content={
+                                  <div className="space-y-1">
+                                    <p>AI予測または予算から算出された推奨人員枠です。</p>
+                                    <p className="text-[10px] opacity-80">AI予測(日曜): {row.aiRecs.sun} / 予算: {row.budgetRecommendedH}</p>
+                                  </div>
+                                }>
+                                  <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.sun}</div>
+                                </Tooltip>
+                                <input type="number" min="0" value={row.plan.sundayHolidayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'sundayHolidayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                                <div className="mt-1 flex flex-col items-center space-y-1">
+                                  <Tooltip content="休業日調整（マイナス入力）">
+                                    <input 
+                                      type="number" 
+                                      max="0"
+                                      value={row.plan.sundayHolidayAdjustment || ''} 
+                                      onChange={e => handleStorePlanChange(row.store.id, 'sundayHolidayAdjustment', Number(e.target.value))} 
+                                      className="w-10 p-0.5 border border-red-200 rounded text-[10px] text-center text-red-600 bg-red-50"
+                                      placeholder="休"
+                                    />
+                                  </Tooltip>
+                                  <Tooltip content={`月間日曜日数(${dayCounts.sundayHoliday}日 + 調整) × 配置人数`}>
+                                    <div className="text-[10px] text-blue-600 text-center font-bold cursor-help">{row.sunMD}</div>
+                                  </Tooltip>
+                                </div>
                               </td>
                               
-                              <td className="p-1 border-r border-neutral-300 text-center font-bold bg-yellow-100 align-middle">{row.totalPlanned}</td>
+                              <td className="p-1 border-r border-neutral-300 text-center font-bold bg-yellow-100 align-middle">
+                                <Tooltip content="各曜日の配置人数から算出された月間の合計計画人工数です。">
+                                  <span className="cursor-help">{row.totalPlanned}</span>
+                                </Tooltip>
+                              </td>
                               
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50"></td>
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50"></td>
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50"></td>
-                              <td className="p-1 border-r border-neutral-300 bg-neutral-50"></td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center font-bold text-blue-600 align-middle">
+                                <Tooltip content="店舗スタッフ全員の公出（休日出勤）日数の合計です。">
+                                  <span className="cursor-help">{row.totalExtraWorkDays > 0 ? `+${row.totalExtraWorkDays}` : row.totalExtraWorkDays}</span>
+                                </Tooltip>
+                              </td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center font-bold text-red-600 align-middle">
+                                <Tooltip content="店舗スタッフ全員の有給休暇取得日数の合計です。">
+                                  <span className="cursor-help">{row.totalPaidLeaveDays > 0 ? `-${row.totalPaidLeaveDays}` : row.totalPaidLeaveDays}</span>
+                                </Tooltip>
+                              </td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center font-bold text-red-600 align-middle">
+                                <Tooltip content="店舗スタッフ全員の他店への応援派遣日数の合計です。">
+                                  <span className="cursor-help">{row.totalSupportDays > 0 ? `-${row.totalSupportDays}` : row.totalSupportDays}</span>
+                                </Tooltip>
+                              </td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center font-bold text-red-600 align-middle">
+                                <Tooltip content="店舗スタッフ全員の研修参加日数の合計です。">
+                                  <span className="cursor-help">{row.totalTrainingDays > 0 ? `-${row.totalTrainingDays}` : row.totalTrainingDays}</span>
+                                </Tooltip>
+                              </td>
+                              <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center font-bold text-red-600 align-middle">
+                                <Tooltip content="店舗スタッフ全員の休職等による減少日数の合計です。">
+                                  <span className="cursor-help">{row.totalDaysOffAdjustment > 0 ? `-${row.totalDaysOffAdjustment}` : row.totalDaysOffAdjustment}</span>
+                                </Tooltip>
+                              </td>
                             </>
                           ) : staff ? (
                             <>
@@ -534,9 +947,12 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                 </button>
                               </td>
                               <td className="p-1 border-r border-neutral-300 text-center text-neutral-600">{staff.daysOff}</td>
-                              <td className="p-1 border-r border-neutral-300 text-center text-neutral-900">{dayCounts.total - staff.daysOff}</td>
+                              <td className="p-1 border-r border-neutral-300 text-center text-neutral-900">
+                                <Tooltip content="月間日数 - 公休数" position="bottom">
+                                  <span className="cursor-help">{dayCounts.total - staff.daysOff}</span>
+                                </Tooltip>
+                              </td>
                               <td className="p-1 border-r border-neutral-300 text-center text-neutral-600">{staff.capacity}</td>
-                              <td className="p-1 border-r border-neutral-300 text-center text-neutral-900">{(dayCounts.total - staff.daysOff) * staff.capacity}</td>
                               
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
@@ -548,36 +964,38 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                               <td className="p-1 border-r border-neutral-300 bg-yellow-50"></td>
                               
                               <td className="p-1 border-r border-neutral-300 text-center">
-                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.extraWorkDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'extraWorkDays', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
+                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.extraWorkDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'extraWorkDays', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                               </td>
                               <td className="p-1 border-r border-neutral-300 text-center">
-                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.paidLeaveDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'paidLeaveDays', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
+                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.paidLeaveDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'paidLeaveDays', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                               </td>
                               <td className="p-1 border-r border-neutral-300 text-center">
-                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.supportDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'supportDays', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
+                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.supportDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'supportDays', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                               </td>
                               <td className="p-1 border-r border-neutral-300 text-center">
-                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.trainingDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'trainingDays', Number(e.target.value))} className="w-8 p-1 border rounded text-center mx-auto block text-xs" />
+                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.trainingDays) || ''} onChange={e => handleStaffDetailChange(staff.id, 'trainingDays', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
+                              </td>
+                              <td className="p-1 border-r border-neutral-300 text-center">
+                                <input type="number" min="0" value={(staffWorkforceDetails.find(d => d.staffId === staff.id && d.yearMonth === currentYearMonth)?.daysOffAdjustment) || ''} onChange={e => handleStaffDetailChange(staff.id, 'daysOffAdjustment', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                               </td>
                             </>
                           ) : isAddStaffRow ? (
                             <>
                               <td className="p-1 border-r border-neutral-300 sticky left-[180px] bg-neutral-50 z-10">
-                                <select 
-                                  className="w-full p-1 border rounded text-xs bg-white"
-                                  onChange={(e) => {
-                                    handleAddStaffToStore(row.store.id, e.target.value);
-                                    e.target.value = ""; // reset
-                                  }}
-                                  defaultValue=""
-                                >
-                                  <option value="" disabled>+ 追加</option>
-                                  {staffs.filter(s => !row.staffsInStore.find(inStore => inStore.id === s.id)).map(s => (
-                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                  ))}
-                                </select>
+                                  <select 
+                                    className="w-full p-1 border rounded text-xs bg-white"
+                                    onChange={(e) => {
+                                      handleAddStaffToStore(row.store.id, e.target.value);
+                                      e.target.value = ""; // reset
+                                    }}
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>+ 追加</option>
+                                    {staffs.filter(s => !allAllocatedStaffIds.includes(s.id)).map(s => (
+                                      <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                  </select>
                               </td>
-                              <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
@@ -606,8 +1024,6 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
-                              <td className="p-1 border-r border-neutral-300"></td>
-                              <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300 bg-yellow-50"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
@@ -619,7 +1035,9 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                           {/* Right side columns */}
                           {isSummaryRow && (
                             <td rowSpan={rowSpan} className="p-1 border-r border-neutral-300 text-center font-bold bg-yellow-100 align-middle">
-                              <span className={row.shortage < 0 ? 'text-red-600' : ''}>{row.shortage}</span>
+                              <Tooltip content="確保人工数 - 計画計">
+                                <span className={`cursor-help ${row.shortage < 0 ? 'text-red-600' : ''}`}>{row.shortage}</span>
+                              </Tooltip>
                             </td>
                           )}
 
@@ -652,7 +1070,20 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                 {row.partTimeTotal > 0 ? row.partTimeTotal : ''}
                               </td>
                               <td rowSpan={rowSpan} className={`p-1 text-center font-bold bg-yellow-100 align-middle text-base ${row.shortage + row.partTimeTotal < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                {row.shortage + row.partTimeTotal > 0 ? `+${row.shortage + row.partTimeTotal}` : row.shortage + row.partTimeTotal}
+                                <Tooltip 
+                                  content={
+                                    <div className="space-y-1">
+                                      <p className="font-bold border-b border-white/20 pb-1 mb-1">応援必要数</p>
+                                      <p>計算：過不足 + 時短パート合計</p>
+                                      <p className="text-[10px] opacity-80">※マイナスは人員不足（応援が必要）を意味します。</p>
+                                    </div>
+                                  }
+                                  position="top-right"
+                                >
+                                  <span className="cursor-help">
+                                    {row.shortage + row.partTimeTotal > 0 ? `+${row.shortage + row.partTimeTotal}` : row.shortage + row.partTimeTotal}人工
+                                  </span>
+                                </Tooltip>
                               </td>
                             </>
                           )}
@@ -662,10 +1093,65 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                   </React.Fragment>
                 );
               })}
+              {/* Grand Total Row */}
+              <tr className="bg-neutral-200 font-bold border-t-2 border-neutral-400">
+                <td className="p-2 border-r border-neutral-300 sticky left-0 bg-neutral-200 z-10">全店合計</td>
+                <td className="p-2 border-r border-neutral-300 sticky left-[80px] bg-neutral-200 z-10">
+                  <div className="text-[10px] text-neutral-600">AI:{grandTotals.aiVisitors}</div>
+                  <div className="text-[10px] text-neutral-600">予算:{grandTotals.budget}</div>
+                </td>
+                <td className="p-2 border-r border-neutral-300 sticky left-[180px] bg-neutral-200 z-10 text-center">-</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-xs text-neutral-600">
+                  {grandTotals.totalDaysOff}
+                </td>
+                <td className="p-2 border-r border-neutral-300 text-center text-xs">
+                  確保合計<br/>
+                  <Tooltip content="全スタッフの稼働可能日数の総計です。">
+                    <span className="font-bold text-neutral-700 cursor-help">
+                      {grandTotals.totalBaseManDays}人工
+                    </span>
+                  </Tooltip>
+                </td>
+                <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
+                  <Tooltip content="全スタッフの個体能力の総計です。全員が出勤した際の1日最大供給力を示します。">
+                    <span className="cursor-help">{grandTotals.totalCapacitySum}人工</span>
+                  </Tooltip>
+                </td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.monMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.tueMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.wedMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.thuMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.friMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.satMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{grandTotals.sunMD}</td>
+                <td className="p-2 border-r border-neutral-300 text-center bg-yellow-200">
+                  <Tooltip content="各店舗の月間計画人工数の合計です。">
+                    <span className="cursor-help">{grandTotals.totalPlanned}人工</span>
+                  </Tooltip>
+                </td>
+                <td className="p-2 border-r border-neutral-300 text-center text-blue-600">+{grandTotals.extra}人工</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-red-600">-{grandTotals.paid}人工</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-red-600">-{grandTotals.support}人工</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-red-600">-{grandTotals.training}人工</td>
+                <td className="p-2 border-r border-neutral-300 text-center text-red-600">-{grandTotals.leave}人工</td>
+                <td className="p-2 border-r border-neutral-300 text-center bg-yellow-200">
+                  <span className={grandTotals.shortage < 0 ? 'text-red-600' : ''}>{grandTotals.shortage}人工</span>
+                </td>
+                <td colSpan={2} className="p-2 border-r border-neutral-300 text-center">-</td>
+                <td className="p-2 border-r border-neutral-300 text-center">{grandTotals.partTimeTotal}人工</td>
+                <td className="p-2 text-center text-sm border-r border-neutral-300">
+                  <Tooltip content="全店合計の過不足（時短パート含む）です。" position="top-right">
+                    <span className={`cursor-help font-bold ${grandTotals.shortage + grandTotals.partTimeTotal < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {grandTotals.shortage + grandTotals.partTimeTotal > 0 ? `+${grandTotals.shortage + grandTotals.partTimeTotal}` : grandTotals.shortage + grandTotals.partTimeTotal}人工
+                    </span>
+                  </Tooltip>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       </div>
+      {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
     </div>
   );
 };

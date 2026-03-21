@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Settings, LayoutDashboard, Menu, X, BarChart3, BookOpen, CalendarDays } from 'lucide-react';
+import { AlertTriangle, Settings, LayoutDashboard, Menu, X, BarChart3, BookOpen, CalendarDays, Database } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { getDaysInMonth } from '../utils/calculations';
+import { DataManagement } from './DataManagement';
 
 export type TabType = 'dashboard' | 'settings' | 'analytics' | 'logic' | 'workforce';
 
@@ -15,6 +16,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentYearMonth, setCurrentYearMonth, activeTab, setActiveTab }) => {
   const { allocations } = useAppContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   
   const currentAllocations = allocations.filter(a => a.yearMonth === currentYearMonth);
   const staffCounts: Record<string, number> = {};
@@ -102,6 +104,15 @@ export const Header: React.FC<HeaderProps> = ({ currentYearMonth, setCurrentYear
       </div>
 
       <div className="flex items-center space-x-4">
+        <button 
+          onClick={() => setIsDataModalOpen(true)}
+          className="p-2 hover:bg-neutral-800 rounded-md transition-colors flex items-center space-x-2 text-neutral-400 hover:text-white"
+          title="データ管理 (JSON入出力)"
+        >
+          <Database size={20} />
+          <span className="text-xs hidden md:block">データ管理</span>
+        </button>
+
         {hasDuplicates && (
           <div className="flex items-center space-x-2 bg-red-600/20 text-red-500 px-3 py-1.5 rounded-full border border-red-600/50 animate-pulse">
             <AlertTriangle size={18} />
@@ -109,6 +120,8 @@ export const Header: React.FC<HeaderProps> = ({ currentYearMonth, setCurrentYear
           </div>
         )}
       </div>
+
+      {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
     </header>
   );
 };

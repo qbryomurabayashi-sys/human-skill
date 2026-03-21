@@ -19,6 +19,9 @@ interface AppContextType {
   setStaffWorkforceDetails: React.Dispatch<React.SetStateAction<StaffWorkforceDetail[]>>;
   budgets: MonthlyBudget[];
   setBudgets: React.Dispatch<React.SetStateAction<MonthlyBudget[]>>;
+  resetAllData: () => void;
+  exportData: () => string;
+  importData: (json: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -75,6 +78,41 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [staffWorkforceDetails, setStaffWorkforceDetails] = useLocalStorage<StaffWorkforceDetail[]>('app_staff_workforce_details', []);
   const [budgets, setBudgets] = useLocalStorage<MonthlyBudget[]>('app_budgets', []);
 
+  const resetAllData = () => {
+    setStores(initialStores);
+    setStaffs(initialStaffs);
+    setVisitors(initialVisitors);
+    setAllocations([]);
+    setFactors(initialFactors);
+    setStoreWorkforcePlans([]);
+    setStaffWorkforceDetails([]);
+    setBudgets([]);
+  };
+
+  const exportData = () => {
+    return JSON.stringify({
+      stores, staffs, visitors, allocations, factors, storeWorkforcePlans, staffWorkforceDetails, budgets
+    }, null, 2);
+  };
+
+  const importData = (json: string) => {
+    try {
+      const data = JSON.parse(json);
+      if (data.stores) setStores(data.stores);
+      if (data.staffs) setStaffs(data.staffs);
+      if (data.visitors) setVisitors(data.visitors);
+      if (data.allocations) setAllocations(data.allocations);
+      if (data.factors) setFactors(data.factors);
+      if (data.storeWorkforcePlans) setStoreWorkforcePlans(data.storeWorkforcePlans);
+      if (data.staffWorkforceDetails) setStaffWorkforceDetails(data.staffWorkforceDetails);
+      if (data.budgets) setBudgets(data.budgets);
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -86,6 +124,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         storeWorkforcePlans, setStoreWorkforcePlans,
         staffWorkforceDetails, setStaffWorkforceDetails,
         budgets, setBudgets,
+        resetAllData, exportData, importData,
       }}
     >
       {children}

@@ -8,6 +8,13 @@ export interface StoreWorkforcePlan {
   fridayCount: number;
   saturdayCount: number;
   sundayHolidayCount: number;
+  mondayAdjustment?: number;
+  tuesdayAdjustment?: number;
+  wednesdayAdjustment?: number;
+  thursdayAdjustment?: number;
+  fridayAdjustment?: number;
+  saturdayAdjustment?: number;
+  sundayHolidayAdjustment?: number;
   partTimeStaff?: { id: string; name: string; days: number }[];
 }
 
@@ -18,6 +25,7 @@ export interface StaffWorkforceDetail {
   paidLeaveDays: number;
   supportDays: number;
   trainingDays: number;
+  daysOffAdjustment?: number;
 }
 export interface StoreMaster {
   id: string;

@@ -11,9 +11,10 @@ export const LogicExplanation: React.FC = () => {
       <div className="space-y-6">
         {/* TREND Prediction */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">1. TREND予測 (重回帰分析)</h3>
+          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">1. TREND予測 (重回帰分析) & 曜日トレンド</h3>
           <p className="text-neutral-700 mb-4">
             過去の月別平均客数を目的変数とし、外部要因（広告費、競合フラグ）を説明変数とした重回帰分析を用いてベースとなる客数を予測します。
+            さらに、曜日ごとの来客傾向（曜日指数）を算出し、日別の詳細な予測を行います。
           </p>
           <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
             Y = β0 + β1*X1 + β2*X2<br/>
@@ -21,7 +22,10 @@ export const LogicExplanation: React.FC = () => {
             Y: 予測ベース客数<br/>
             X1: 広告費 (万円)<br/>
             X2: 競合フラグ (0 or 1)<br/>
-            β0, β1, β2: 過去データから最小二乗法により算出された偏回帰係数
+            β0, β1, β2: 過去データから最小二乗法により算出された偏回帰係数<br/>
+            <br/>
+            曜日指数 = (特定の曜日の平均客数) / (全曜日の平均客数)<br/>
+            日別予測 = Y × 季節指数 × 曜日指数
           </div>
           <p className="text-sm text-neutral-500">
             ※ 過去データが不足している場合や、行列の計算が不可能な場合（多重共線性など）は、単純な過去平均値がフォールバックとして使用されます。
@@ -107,21 +111,21 @@ export const LogicExplanation: React.FC = () => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
           <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">5. 必要人員枠の計算 (1日あたり)</h3>
           <p className="text-neutral-700 mb-4">
-            上記で算出された「1日あたりの予測客数（AIベース または 予算ベース）」と、店舗の営業時間、スタッフの標準的な処理能力（1時間あたり2.5人）に基づいて、1日あたりに必要なスタッフ数（推奨人数）を算出します。
+            上記で算出された「1日あたりの予測客数（AIベース または 予算ベース）」と、店舗の営業時間、スタッフの標準的な処理能力（1時間あたり2.5人工）に基づいて、1日あたりに必要なスタッフ数（推奨人工数）を算出します。
           </p>
           <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            店舗の1日処理能力 = 営業時間 × 2.5人/時<br/>
-            必要人員(理論値) = 1日の予測客数 / 店舗の1日処理能力<br/>
+            店舗の1日処理能力 = 営業時間 × 2.5人工/時<br/>
+            必要人工数(理論値) = 1日の予測客数 / 店舗の1日処理能力<br/>
             <br/>
-            最終必要人員 = 理論値を四捨五入し、以下の制約を適用<br/>
+            最終必要人工数 = 理論値を四捨五入し、以下の制約を適用<br/>
             ・最大値: 店舗の席数 (※席数を上限とします)<br/>
-            ・最小値(平日): 2人<br/>
-            ・最小値(休日): オープンから37ヶ月以内は3人、それ以降は2人
+            ・最小値(平日): 2人工<br/>
+            ・最小値(休日): オープンから37ヶ月以内は3人工、それ以降は2人工
           </div>
           <div className="bg-red-50 p-4 rounded-lg border border-red-100 text-sm text-red-800">
             <strong>※なぜ席数を増やしても必要人数が増えないのか？</strong><br/>
-            席数はあくまで「上限値」として機能します。例えば、1日の客数が100人で営業時間が10時間の場合、理論値は「100 ÷ (10 × 2.5) = 4人」となります。この時、席数を10000に設定して上限をなくしても、計算結果自体が4人であるため、最終必要人数は4人となります。<br/>
-            人数を増やすには、<strong>「月間予算」に大きな数字を入力して予算ベースの客数を引き上げる</strong>か、システムの処理能力定数(2.5)を変更する必要があります。
+            席数はあくまで「上限値」として機能します。例えば、1日の客数が100人で営業時間が10時間の場合、理論値は「100 ÷ (10 × 2.5) = 4人工」となります。この時、席数を10000に設定して上限をなくしても、計算結果自体が4人工であるため、最終必要人工数は4人工となります。<br/>
+            人工数を増やすには、<strong>「月間予算」に大きな数字を入力して予算ベースの客数を引き上げる</strong>か、システムの処理能力定数(2.5)を変更する必要があります。
           </div>
         </div>
 
@@ -133,19 +137,23 @@ export const LogicExplanation: React.FC = () => {
           </p>
           <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
             <strong>【確保人工数】 (使える人工数)</strong><br/>
-            店舗に配属された全スタッフの「出勤可能日数」の合計です。<br/>
-            出勤可能日数 = (その月の日数) - (スタッフの公休数)<br/>
+            店舗に配属された全スタッフの「確保人工数」の合計です。<br/>
+            確保人工数 = (その月の日数) - (スタッフの公休数)<br/>
             <br/>
             <strong>【必要人工数】 (推奨される人工数)</strong><br/>
             AI予測から算出された「1日あたりの必要人員枠」を、その月のカレンダー日数に掛け合わせた合計です。<br/>
             必要人工数 = (平日の必要人員 × その月の平日日数) + (休日の必要人員 × その月の休日日数)<br/>
             <br/>
-            <strong>【過不足】</strong><br/>
-            確保人工数から必要人工数を引いた値です。<br/>
-            過不足 = 確保人工数 - 必要人工数<br/>
-            ※ マイナス（赤字）の場合は、推奨される人数に対してシフトに入れるスタッフの総枠が足りていないことを示します。<br/>
+            <strong>【合計供給力(1日)】</strong><br/>
+            スタッフ全員が1日出勤した場合の、合計のサービス提供能力（対応可能客数）です。<br/>
+            合計供給力(1日) = Σ(スタッフごとの個体能力)<br/>
             <br/>
-            <strong>【応援必要数 (過不足)】</strong><br/>
+            <strong>【過不足】</strong><br/>
+            確保人工数から「計画計」を引いた値です。現在のスタッフ数で計画通りのシフトが組めるかを示します。<br/>
+            過不足 = 確保人工数 - 計画計<br/>
+            ※ マイナス（赤字）の場合は、計画したシフトに対してスタッフの総枠が足りていないことを示します。<br/>
+            <br/>
+            <strong>【応援必要数 (最終過不足)】</strong><br/>
             一番右の列に表示される最終的な過不足です。時短パートの出勤日数も加味して計算されます。<br/>
             応援必要数 = 過不足 + 時短パートの合計日数
           </div>
@@ -153,16 +161,33 @@ export const LogicExplanation: React.FC = () => {
         
         {/* Staff Capacity */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">7. スタッフの1日能力計算</h3>
+          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">7. スタッフの個体能力計算</h3>
           <p className="text-neutral-700 mb-4">
-            マスタ設定にて過去の対応人数データをペーストした際、自動的に以下の計算が行われ「1日能力」として設定されます。
+            マスタ設定にて過去の対応人数データをペーストした際、自動的に以下の計算が行われ「個体能力」として設定されます。
           </p>
           <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800">
-            1日能力 = (ペーストされた全データの平均値) / 12<br/>
+            個体能力 = ペーストされた数値の平均値<br/>
+            ※ エクセル等からコピーした「出勤日の対応人数」の平均がそのまま個体能力（1日あたりの能力）となります。<br/>
             ※ 小数第2位で四捨五入されます。
           </div>
         </div>
 
+        {/* Negative Adjustments */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
+          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">8. マイナス調整ロジック (休業・休職)</h3>
+          <p className="text-neutral-700 mb-4">
+            店舗の定休日やスタッフの長期休暇など、標準的な計算から除外すべき日数を手動で調整できます。
+          </p>
+          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
+            <strong>【店舗の休業調整】</strong><br/>
+            各曜日の「調整」欄に入力した日数が、その月の稼働日数から差し引かれます。<br/>
+            有効稼働日数 = カレンダー上の曜日数 - 調整入力数<br/>
+            <br/>
+            <strong>【スタッフの休職調整】</strong><br/>
+            スタッフごとの「休職等」欄に入力した日数が、そのスタッフの月間公休数に加算（実質的な稼働可能日数の減少）されます。<br/>
+            実質稼働可能日数 = (月間日数) - (公休数) - (休職等調整数)
+          </div>
+        </div>
       </div>
     </div>
   );

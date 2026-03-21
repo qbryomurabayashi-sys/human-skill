@@ -1,17 +1,27 @@
 import React, { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ComposedChart, Area, AreaChart } from 'recharts';
 import { useAppContext } from '../context/AppContext';
-import { Filter, MapPin, Store, Calendar as CalendarIcon } from 'lucide-react';
+import { Filter, MapPin, Store, Calendar as CalendarIcon, TrendingUp, RotateCcw, Database } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
+import { calculatePredictions } from '../utils/calculations';
+import { DataManagement } from './DataManagement';
 
 interface AnalyticsProps {
   currentYearMonth: string;
 }
 
 type ViewMode = 'all' | 'area' | 'store';
-type Timeframe = '12months' | 'quarterly' | 'weekly' | 'daily';
+type Timeframe = '12months' | 'quarterly' | 'weekly' | 'daily' | 'future';
 
 export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
-  const { stores, visitors } = useAppContext();
+  const { stores, visitors, budgets, factors, resetAllData } = useAppContext();
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+
+  const handleReset = () => {
+    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
+      resetAllData();
+    }
+  };
 
   const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [selectedArea, setSelectedArea] = useState<string>('all');
@@ -144,6 +154,53 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
       }));
   }, [relevantVisitors, timeframe, currentYearMonth]);
 
+  // 5. Future Predictions
+  const dataFuture = useMemo(() => {
+    if (timeframe !== 'future') return [];
+
+    const futureMonths: string[] = [];
+    const [year, month] = currentYearMonth.split('-').map(Number);
+    
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(year, month - 1 + i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      futureMonths.push(ym);
+    }
+
+    return futureMonths.map(ym => {
+      let totalPredicted = 0;
+      let totalBudget = 0;
+
+      filteredStores.forEach(store => {
+        const storeBudgets = budgets.filter(b => b.storeId === store.id);
+        const storeFactors = factors.filter(f => f.storeId === store.id);
+        const storeVisitors = visitors.filter(v => v.storeId === store.id);
+
+        const preds = calculatePredictions(
+          storeVisitors,
+          storeFactors,
+          store.id,
+          ym
+        );
+
+        const budgetObj = storeBudgets.find(b => b.yearMonth === ym);
+        const budgetValue = budgetObj ? budgetObj.budget : 0;
+
+        // Calculate monthly total from daily predictions
+        const aiMonthly = preds.preds.reduce((sum, p) => sum + p.visitors, 0);
+        
+        totalPredicted += aiMonthly;
+        totalBudget += budgetValue;
+      });
+
+      return {
+        name: ym,
+        predicted: Math.round(totalPredicted),
+        budget: Math.round(totalBudget)
+      };
+    });
+  }, [filteredStores, budgets, factors, visitors, timeframe, currentYearMonth]);
+
 
   const renderGraph = () => {
     switch (timeframe) {
@@ -206,6 +263,20 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
             </LineChart>
           </ResponsiveContainer>
         );
+      case 'future':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={dataFuture} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e5e5" />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} />
+              <Tooltip cursor={{ fill: '#f5f5f5' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+              <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+              <Area type="monotone" dataKey="predicted" name="AI予測客数" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.1} strokeWidth={3} />
+              <Line type="monotone" dataKey="budget" name="予算客数" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        );
     }
   };
 
@@ -219,14 +290,33 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
       case 'quarterly': return `${target} - 四半期ごとの客数比較`;
       case 'weekly': return `${target} - 曜日別の客数傾向 (直近3ヶ月)`;
       case 'daily': return `${target} - 日別客数推移 (${currentYearMonth})`;
+      case 'future': return `${target} - 未来6ヶ月の需要予測`;
     }
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-neutral-900 mb-2">分析・グラフ</h2>
-        <p className="text-neutral-600">店舗、エリア、全店舗ブロックごとの客数データを様々な期間で分析します。</p>
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-neutral-900 mb-2">分析・グラフ</h2>
+          <p className="text-neutral-600">店舗、エリア、全店舗ブロックごとの客数データを様々な期間で分析します。</p>
+        </div>
+        <div className="flex items-center space-x-4">
+          <button 
+            onClick={() => setIsDataModalOpen(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
+          >
+            <Database className="w-4 h-4 text-indigo-600" />
+            <span>JSONコード入力・出力</span>
+          </button>
+          <button 
+            onClick={handleReset}
+            className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>オールリセット</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -293,6 +383,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
             <option value="quarterly">四半期別</option>
             <option value="weekly">曜日別</option>
             <option value="daily">暦日別 ({currentYearMonth})</option>
+            <option value="future">未来予測 (6ヶ月)</option>
           </select>
         </div>
       </div>
@@ -315,27 +406,47 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
             <thead>
               <tr className="bg-white border-b border-neutral-200 text-neutral-500">
                 <th className="p-3 font-medium">期間 / 項目</th>
-                <th className="p-3 font-medium text-right">平均客数</th>
-                {timeframe !== 'weekly' && timeframe !== 'daily' && <th className="p-3 font-medium text-right">総客数</th>}
+                <th className="p-3 font-medium text-right">
+                  <InfoTooltip content="期間内の総客数 / 期間内の日数" position="bottom">
+                    <span className="cursor-help">平均客数</span>
+                  </InfoTooltip>
+                </th>
+                {timeframe !== 'weekly' && timeframe !== 'daily' && (
+                  <th className="p-3 font-medium text-right">
+                    <InfoTooltip content="期間内の累計客数" position="bottom">
+                      <span className="cursor-help">総客数</span>
+                    </InfoTooltip>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {(timeframe === '12months' ? data12Months :
                 timeframe === 'quarterly' ? dataQuarterly :
                 timeframe === 'weekly' ? dataWeekly :
-                dataDaily).map((row, i) => (
+                timeframe === 'daily' ? dataDaily :
+                dataFuture).map((row, i) => (
                 <tr key={i} className="border-b border-neutral-100 hover:bg-neutral-50">
                   <td className="p-3 font-medium text-neutral-800">{row.name}</td>
-                  <td className="p-3 text-right text-neutral-600">{row.avgDaily.toLocaleString()} 人</td>
+                  <td className="p-3 text-right text-neutral-600">
+                    {timeframe === 'future' 
+                      ? `${(row as any).predicted.toLocaleString()} 人工 (予測)` 
+                      : `${row.avgDaily.toLocaleString()} 人工`}
+                  </td>
                   {timeframe !== 'weekly' && timeframe !== 'daily' && (
-                    <td className="p-3 text-right text-neutral-600">{'total' in row ? row.total.toLocaleString() : '-'} 人</td>
+                    <td className="p-3 text-right text-neutral-600">
+                      {timeframe === 'future' 
+                        ? `${(row as any).budget.toLocaleString()} 人工 (予算)` 
+                        : 'total' in row ? row.total.toLocaleString() : '-'} 人工
+                    </td>
                   )}
                 </tr>
               ))}
               {(timeframe === '12months' && data12Months.length === 0) ||
                (timeframe === 'quarterly' && dataQuarterly.length === 0) ||
                (timeframe === 'weekly' && dataWeekly.length === 0) ||
-               (timeframe === 'daily' && dataDaily.length === 0) ? (
+               (timeframe === 'daily' && dataDaily.length === 0) ||
+               (timeframe === 'future' && dataFuture.length === 0) ? (
                 <tr>
                   <td colSpan={3} className="p-8 text-center text-neutral-500">データがありません</td>
                 </tr>
@@ -344,6 +455,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
           </table>
         </div>
       </div>
+      {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
     </div>
   );
 };

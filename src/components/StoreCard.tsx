@@ -3,6 +3,7 @@ import { StoreMaster } from '../types';
 import { useAppContext } from '../context/AppContext';
 import { calculatePredictions, calculateRequiredStaff, getDaysInMonth, calculateMonthsOpen } from '../utils/calculations';
 import { Users, CalendarDays, TrendingUp } from 'lucide-react';
+import { InfoTooltip as Tooltip } from './InfoTooltip';
 
 interface StoreCardProps {
   store: StoreMaster;
@@ -10,7 +11,7 @@ interface StoreCardProps {
 }
 
 export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth }) => {
-  const { visitors, factors, allocations, setAllocations, staffs } = useAppContext();
+  const { visitors, factors, allocations, setAllocations, staffs, staffWorkforceDetails } = useAppContext();
 
   const daysInMonth = getDaysInMonth(currentYearMonth);
   const monthsOpen = calculateMonthsOpen(store.openDate, currentYearMonth);
@@ -36,6 +37,25 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
       }
     });
   });
+
+  const storeStaffDetails = staffWorkforceDetails.filter(d => 
+    d.yearMonth === currentYearMonth && 
+    assignedStaffIds.includes(d.staffId)
+  );
+
+  const totals = {
+    extra: storeStaffDetails.reduce((sum, d) => sum + (d.extraWorkDays || 0), 0),
+    paid: storeStaffDetails.reduce((sum, d) => sum + (d.paidLeaveDays || 0), 0),
+    support: storeStaffDetails.reduce((sum, d) => sum + (d.supportDays || 0), 0),
+    training: storeStaffDetails.reduce((sum, d) => sum + (d.trainingDays || 0), 0),
+  };
+
+  const baseWorkableDays = assignedStaffIds.reduce((sum, id) => {
+    const staff = staffs.find(s => s.id === id);
+    return sum + (staff ? daysInMonth - staff.daysOff : 0);
+  }, 0);
+
+  const adjustedManDays = baseWorkableDays + totals.extra - totals.paid - totals.support - totals.training;
 
   const getStatusColor = (required: number, assigned: number) => {
     if (assigned < required) return 'bg-red-100 text-red-800 border-red-200';
@@ -74,31 +94,69 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
         </div>
       </div>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b border-neutral-100 bg-white text-sm">
+        <div className="flex flex-col p-2 rounded bg-blue-50 border border-blue-100">
+          <span className="text-[10px] font-bold text-blue-600 uppercase">公出 (プラス)</span>
+          <span className="text-lg font-bold text-blue-700">+{totals.extra} <span className="text-xs font-normal">人工</span></span>
+        </div>
+        <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
+          <span className="text-[10px] font-bold text-red-600 uppercase">有休 (マイナス)</span>
+          <span className="text-lg font-bold text-red-700">-{totals.paid} <span className="text-xs font-normal">人工</span></span>
+        </div>
+        <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
+          <span className="text-[10px] font-bold text-red-600 uppercase">応援 (マイナス)</span>
+          <span className="text-lg font-bold text-red-700">-{totals.support} <span className="text-xs font-normal">人工</span></span>
+        </div>
+        <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
+          <span className="text-[10px] font-bold text-red-600 uppercase">研修 (マイナス)</span>
+          <span className="text-lg font-bold text-red-700">-{totals.training} <span className="text-xs font-normal">人工</span></span>
+        </div>
+      </div>
+
+      <div className="px-4 py-2 bg-neutral-900 text-white flex justify-between items-center">
+        <span className="text-xs font-bold">調整後 合計確保人工数</span>
+        <Tooltip content="(月間日数 - 公休数) + 公出 - 有休 - 応援 - 研修" position="bottom">
+          <span className="text-lg font-black cursor-help">{adjustedManDays} <span className="text-xs font-normal opacity-70">人工</span></span>
+        </Tooltip>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border-b border-neutral-100 bg-neutral-50/50 text-sm">
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <TrendingUp size={16} className="text-neutral-400" />
-          <span>TREND予測(平日): <strong className="text-neutral-900">{predictedW.toFixed(1)}</strong></span>
-        </div>
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <TrendingUp size={16} className="text-neutral-400" />
-          <span>FORECAST予測(平日): <strong className="text-neutral-900">{forecastW.toFixed(1)}</strong></span>
-        </div>
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <CalendarDays size={16} className="text-neutral-400" />
-          <span>季節指数(平日): <strong className="text-neutral-900">{seasonalIndexW.toFixed(2)}</strong></span>
-        </div>
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <TrendingUp size={16} className="text-neutral-400" />
-          <span>TREND予測(休日): <strong className="text-neutral-900">{predictedH.toFixed(1)}</strong></span>
-        </div>
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <TrendingUp size={16} className="text-neutral-400" />
-          <span>FORECAST予測(休日): <strong className="text-neutral-900">{forecastH.toFixed(1)}</strong></span>
-        </div>
-        <div className="flex items-center space-x-2 text-neutral-600">
-          <CalendarDays size={16} className="text-neutral-400" />
-          <span>季節指数(休日): <strong className="text-neutral-900">{seasonalIndexH.toFixed(2)}</strong></span>
-        </div>
+        <Tooltip content="重回帰分析（広告費・競合等）による予測値">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <TrendingUp size={16} className="text-neutral-400" />
+            <span>TREND予測(平日): <strong className="text-neutral-900">{predictedW.toFixed(1)}</strong></span>
+          </div>
+        </Tooltip>
+        <Tooltip content="時系列単回帰分析（経過月数）による予測値">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <TrendingUp size={16} className="text-neutral-400" />
+            <span>FORECAST予測(平日): <strong className="text-neutral-900">{forecastW.toFixed(1)}</strong></span>
+          </div>
+        </Tooltip>
+        <Tooltip content="対象月の過去平均 / 全期間平均">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <CalendarDays size={16} className="text-neutral-400" />
+            <span>季節指数(平日): <strong className="text-neutral-900">{seasonalIndexW.toFixed(2)}</strong></span>
+          </div>
+        </Tooltip>
+        <Tooltip content="重回帰分析（広告費・競合等）による予測値">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <TrendingUp size={16} className="text-neutral-400" />
+            <span>TREND予測(休日): <strong className="text-neutral-900">{predictedH.toFixed(1)}</strong></span>
+          </div>
+        </Tooltip>
+        <Tooltip content="時系列単回帰分析（経過月数）による予測値">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <TrendingUp size={16} className="text-neutral-400" />
+            <span>FORECAST予測(休日): <strong className="text-neutral-900">{forecastH.toFixed(1)}</strong></span>
+          </div>
+        </Tooltip>
+        <Tooltip content="対象月の過去平均 / 全期間平均">
+          <div className="flex items-center space-x-2 text-neutral-600 cursor-help">
+            <CalendarDays size={16} className="text-neutral-400" />
+            <span>季節指数(休日): <strong className="text-neutral-900">{seasonalIndexH.toFixed(2)}</strong></span>
+          </div>
+        </Tooltip>
       </div>
 
       <div className="p-4 overflow-x-auto">
@@ -108,8 +166,8 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
               <th className="p-3 font-semibold w-12 text-center">No</th>
               <th className="p-3 font-semibold w-64">氏名</th>
               <th className="p-3 font-semibold text-right">公休数</th>
-              <th className="p-3 font-semibold text-right">出勤可能日数</th>
-              <th className="p-3 font-semibold text-right">1日能力</th>
+              <th className="p-3 font-semibold text-right">確保人工数</th>
+              <th className="p-3 font-semibold text-right">処理能力</th>
               <th className="p-3 font-semibold text-right">月間個体能力</th>
             </tr>
           </thead>
@@ -141,13 +199,17 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
                       {staff ? staff.daysOff : '-'}
                     </td>
                     <td className={`p-3 text-right font-mono text-sm ${isDuplicate ? 'text-red-600' : 'text-neutral-900 font-medium'}`}>
-                      {staff ? workableDays : '-'}
+                      <Tooltip content="月間日数 - 公休数" position="bottom">
+                        <span className="cursor-help">{staff ? workableDays : '-'}</span>
+                      </Tooltip>
                     </td>
                     <td className={`p-3 text-right font-mono text-sm ${isDuplicate ? 'text-red-600' : 'text-neutral-600'}`}>
                       {staff ? staff.capacity : '-'}
                     </td>
                     <td className={`p-3 text-right font-mono text-sm ${isDuplicate ? 'text-red-600' : 'text-neutral-900 font-bold'}`}>
-                      {staff ? monthlyCapacity : '-'}
+                      <Tooltip content="出勤可能日数 × 処理能力" position="bottom">
+                        <span className="cursor-help">{staff ? monthlyCapacity : '-'}</span>
+                      </Tooltip>
                     </td>
                   </tr>
                 );
