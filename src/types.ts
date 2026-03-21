@@ -37,12 +37,15 @@ export interface StoreMaster {
   area?: string;
 }
 
+export type SkillLevel = 'trainee' | 'standard' | 'leader';
+
 export interface StaffMaster {
   id: string;
   name: string;
   capacity: number;
   daysOff: number;
-  isTrainee?: boolean;
+  skillLevel?: SkillLevel;
+  isTrainee?: boolean; // Keep for compatibility
 }
 
 export interface DailyVisitor {

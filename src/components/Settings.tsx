@@ -133,11 +133,26 @@ const StaffSettings = () => {
     const text = e.clipboardData.getData('text');
     const values = text.split(/\t|,|\s+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
     if (values.length > 0) {
-      // 貼り付けられた数値の単純平均を「個体能力（出勤1日あたりの能力）」として採用
+      // 貼り付けられた数値の単純平均を(30.5 - 契約公休数)で割り、「個体能力（出勤1日あたりの能力）」として採用
       const avg = values.reduce((a, b) => a + b, 0) / values.length;
-      handleChange(index, 'capacity', Math.round(avg * 10) / 10);
+      const staff = staffs[index];
+      const divisor = 30.5 - (staff.daysOff || 0);
+      const dailyCapacity = divisor > 0 ? avg / divisor : 0;
+      handleChange(index, 'capacity', Math.round(dailyCapacity * 10) / 10);
       e.currentTarget.value = ''; // clear input after paste
     }
+  };
+
+  const applySkillLevel = (index: number, level: 'trainee' | 'standard' | 'leader') => {
+    // 基準となる実働時間（例: 10時間 - 1.5時間 = 8.5時間）で計算
+    const multipliers = { trainee: 2.5, standard: 3.5, leader: 4.0 };
+    const baseHours = 10; // 基準営業時間
+    const activeHours = baseHours - 1.5;
+    const capacity = Math.round(activeHours * multipliers[level] * 10) / 10;
+    
+    const newStaffs = [...staffs];
+    newStaffs[index] = { ...newStaffs[index], skillLevel: level, capacity };
+    setStaffs(newStaffs);
   };
 
   return (
@@ -147,7 +162,7 @@ const StaffSettings = () => {
           <tr className="bg-neutral-100 text-neutral-600 text-xs uppercase tracking-wider">
             <th className="p-3">ID</th>
             <th className="p-3">氏名</th>
-            <th className="p-3">研修生</th>
+            <th className="p-3">スキルマーク</th>
             <th className="p-3">個体能力</th>
             <th className="p-3">契約公休数</th>
             <th className="p-3">過去実績ペースト (自動計算)</th>
@@ -158,8 +173,20 @@ const StaffSettings = () => {
             <tr key={staff.id}>
               <td className="p-3 font-mono text-sm">{staff.id}</td>
               <td className="p-3"><input type="text" value={staff.name} onChange={e => handleChange(i, 'name', e.target.value)} className="border p-1 rounded w-full" /></td>
-              <td className="p-3 text-center"><input type="checkbox" checked={staff.isTrainee || false} onChange={e => handleChange(i, 'isTrainee', e.target.checked)} className="w-5 h-5 text-red-600 rounded focus:ring-red-500" /></td>
-              <td className="p-3"><input type="number" value={staff.capacity} onChange={e => handleChange(i, 'capacity', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
+              <td className="p-3">
+                <select 
+                  value={staff.skillLevel || 'standard'} 
+                  onChange={e => applySkillLevel(i, e.target.value as any)}
+                  className="border p-1 rounded w-full text-sm"
+                >
+                  <option value="trainee">新人 (2.5)</option>
+                  <option value="standard">標準 (3.5)</option>
+                  <option value="leader">指導者 (4.0)</option>
+                </select>
+              </td>
+              <td className="p-3">
+                <input type="number" value={staff.capacity} onChange={e => handleChange(i, 'capacity', Number(e.target.value))} className="border p-1 rounded w-full" />
+              </td>
               <td className="p-3"><input type="number" value={staff.daysOff} onChange={e => handleChange(i, 'daysOff', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
               <td className="p-3">
                 <input 

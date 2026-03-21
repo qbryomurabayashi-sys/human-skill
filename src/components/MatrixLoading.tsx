@@ -33,9 +33,13 @@ export const MatrixLoading: React.FC<{ onComplete: () => void }> = ({ onComplete
     }
 
     const qbWord = "QBHOUSE";
-    let qbCol = Math.floor(columns / 2);
-    let qbState = 'waiting';
-    let qbIndex = 0;
+    const qbDropConfigs = Array.from({ length: 3 }, () => ({
+      startTime: Math.floor(Math.random() * 150) + 20,
+      col: Math.floor(Math.random() * columns),
+      startRow: Math.floor(Math.random() * (canvas.height / fontSize / 2)), // Random start height (top half)
+      index: 0,
+      active: false,
+    }));
     let frameCount = 0;
 
     const draw = () => {
@@ -46,25 +50,32 @@ export const MatrixLoading: React.FC<{ onComplete: () => void }> = ({ onComplete
       ctx.font = fontSize + 'px monospace';
 
       frameCount++;
-      if (frameCount === 30) { // ~1 second in
-        qbState = 'dropping';
-        drops[qbCol] = 0;
-        qbIndex = 0;
-      }
+      
+      // Check for starting new QB drops
+      qbDropConfigs.forEach(config => {
+        if (frameCount === config.startTime) {
+          config.active = true;
+          drops[config.col] = config.startRow;
+          config.index = 0;
+        }
+      });
 
       for (let i = 0; i < drops.length; i++) {
         let text = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
         ctx.fillStyle = '#0F0'; // Green text
-
-        if (i === qbCol && qbState === 'dropping') {
-          if (qbIndex < qbWord.length) {
-            text = qbWord[qbIndex];
+        
+        // Check if this column is currently a QB drop
+        const activeConfig = qbDropConfigs.find(c => c.active && c.col === i);
+        
+        if (activeConfig) {
+          if (activeConfig.index < qbWord.length) {
+            text = qbWord[activeConfig.index];
             ctx.fillStyle = '#3b82f6'; // Blue
             ctx.shadowColor = '#3b82f6';
-            ctx.shadowBlur = 10;
-            qbIndex++;
+            ctx.shadowBlur = 12;
+            activeConfig.index++;
           } else {
-            qbState = 'done';
+            activeConfig.active = false;
           }
         }
 

@@ -190,10 +190,14 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
                   <tr key={index} className={`transition-colors hover:bg-neutral-50 ${isDuplicate ? 'bg-red-50' : ''}`}>
                     <td className="p-3 text-center text-neutral-400 font-mono text-sm">{index + 1}</td>
                     <td className="p-3 relative font-medium text-neutral-900">
-                      {staff?.name || '不明なスタッフ'}
-                      {isDuplicate && (
-                        <span className="text-xs text-red-600 font-bold ml-2 absolute top-1/2 -translate-y-1/2 right-4">重複!</span>
-                      )}
+                      <div className="flex items-center space-x-2">
+                        <span>{staff?.name || '不明なスタッフ'}</span>
+                        {staff?.skillLevel === 'trainee' && <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded">新人</span>}
+                        {staff?.skillLevel === 'leader' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1 rounded font-bold">指導者</span>}
+                        {isDuplicate && (
+                          <span className="text-xs text-red-600 font-bold">重複!</span>
+                        )}
+                      </div>
                     </td>
                     <td className={`p-3 text-right font-mono text-sm ${isDuplicate ? 'text-red-600' : 'text-neutral-600'}`}>
                       {staff ? staff.daysOff : '-'}

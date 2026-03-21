@@ -2,191 +2,169 @@ import React from 'react';
 
 export const LogicExplanation: React.FC = () => {
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-neutral-900 mb-2">計算ロジック解説</h2>
-        <p className="text-neutral-600">本システムで使用されている各種予測・計算ロジックの仕様について説明します。</p>
-      </div>
-
-      <div className="space-y-6">
-        {/* TREND Prediction */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">1. TREND予測 (重回帰分析) & 曜日トレンド</h3>
-          <p className="text-neutral-700 mb-4">
-            過去の月別平均客数を目的変数とし、外部要因（広告費、競合フラグ）を説明変数とした重回帰分析を用いてベースとなる客数を予測します。
-            さらに、曜日ごとの来客傾向（曜日指数）を算出し、日別の詳細な予測を行います。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            Y = β0 + β1*X1 + β2*X2<br/>
-            <br/>
-            Y: 予測ベース客数<br/>
-            X1: 広告費 (万円)<br/>
-            X2: 競合フラグ (0 or 1)<br/>
-            β0, β1, β2: 過去データから最小二乗法により算出された偏回帰係数<br/>
-            <br/>
-            曜日指数 = (特定の曜日の平均客数) / (全曜日の平均客数)<br/>
-            日別予測 = Y × 季節指数 × 曜日指数
-          </div>
-          <p className="text-sm text-neutral-500">
-            ※ 過去データが不足している場合や、行列の計算が不可能な場合（多重共線性など）は、単純な過去平均値がフォールバックとして使用されます。
-          </p>
-        </div>
-
-        {/* FORECAST Prediction */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">2. FORECAST予測 (時系列単回帰分析)</h3>
-          <p className="text-neutral-700 mb-4">
-            時間の経過（月数）を説明変数とし、過去の月別平均客数を目的変数とした単回帰分析を用いて、時間的トレンドに基づいたベース客数を予測します。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            Y = a + b*t<br/>
-            <br/>
-            Y: 予測ベース客数<br/>
-            t: 基準月からの経過月数<br/>
-            a: 切片<br/>
-            b: 傾き（トレンド）
-          </div>
-          <p className="text-sm text-neutral-500">
-            ※ ExcelのFORECAST関数と同等のロジックです。
-          </p>
-        </div>
-
-        {/* Monthly Budget & Daily Prediction */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">3. 月間予算と1日あたりの客数予測（AIベース / 予算ベース）</h3>
-          <p className="text-neutral-700 mb-4">
-            稼働計画における「1日あたりの予測客数」および「月間予測客数」は、予算の入力状況に応じて以下の2つのベースのいずれかで計算されます。
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-              <h4 className="font-bold text-blue-800 mb-2">【AIベース】 (予算未入力時)</h4>
-              <p className="text-sm text-blue-900 mb-3">
-                過去のデータからTREND予測・FORECAST予測を用いて算出した1日あたりの客数を使用します。
-              </p>
-              <div className="font-mono text-xs text-blue-800 bg-white p-2 rounded border border-blue-100">
-                平日の予測客数 = AIが予測した平日客数<br/>
-                休日の予測客数 = AIが予測した休日客数<br/>
-                <br/>
-                月間予測客数 = <br/>
-                (平日予測客数 × 平日日数) + <br/>
-                (休日予測客数 × 休日日数)
-              </div>
-            </div>
-            
-            <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-              <h4 className="font-bold text-green-800 mb-2">【予算ベース】 (予算入力時)</h4>
-              <p className="text-sm text-green-900 mb-3">
-                入力された「月間予算(客数)」を、平日と休日の傾向(休日倍率: 1.25)に合わせて日割り計算し、1日あたりの客数を逆算します。
-              </p>
-              <div className="font-mono text-xs text-green-800 bg-white p-2 rounded border border-green-100">
-                休日倍率 = 1.25<br/>
-                総ウェイト = 平日日数 + (休日日数 × 1.25)<br/>
-                <br/>
-                平日の予測客数 = 月間予算 ÷ 総ウェイト<br/>
-                休日の予測客数 = 平日の予測客数 × 1.25
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Seasonal Index */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">4. 季節指数 (AI予測時)</h3>
-          <p className="text-neutral-700 mb-4">
-            年間を通じた月ごとの客数の変動（季節性）を捉えるための指数です。平日と休日それぞれで計算されます。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            季節指数 = (対象月の過去平均客数) / (全期間の総平均客数)
-          </div>
-          <p className="text-neutral-700 mb-4">
-            最終的な予測客数は、ベース予測値（TRENDまたはFORECAST）にこの季節指数を掛け合わせて算出されます。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800">
-            最終予測客数 = ベース予測値 × 季節指数
-          </div>
-        </div>
-
-        {/* Required Staff */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">5. 必要人員枠の計算 (1日あたり)</h3>
-          <p className="text-neutral-700 mb-4">
-            上記で算出された「1日あたりの予測客数（AIベース または 予算ベース）」と、店舗の営業時間、スタッフの標準的な処理能力（1時間あたり2.5人工）に基づいて、1日あたりに必要なスタッフ数（推奨人工数）を算出します。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            店舗の1日処理能力 = 営業時間 × 2.5人工/時<br/>
-            必要人工数(理論値) = 1日の予測客数 / 店舗の1日処理能力<br/>
-            <br/>
-            最終必要人工数 = 理論値を四捨五入し、以下の制約を適用<br/>
-            ・最大値: 店舗の席数 (※席数を上限とします)<br/>
-            ・最小値(平日): 2人工<br/>
-            ・最小値(休日): オープンから37ヶ月以内は3人工、それ以降は2人工
-          </div>
-          <div className="bg-red-50 p-4 rounded-lg border border-red-100 text-sm text-red-800">
-            <strong>※なぜ席数を増やしても必要人数が増えないのか？</strong><br/>
-            席数はあくまで「上限値」として機能します。例えば、1日の客数が100人で営業時間が10時間の場合、理論値は「100 ÷ (10 × 2.5) = 4人工」となります。この時、席数を10000に設定して上限をなくしても、計算結果自体が4人工であるため、最終必要人工数は4人工となります。<br/>
-            人工数を増やすには、<strong>「月間予算」に大きな数字を入力して予算ベースの客数を引き上げる</strong>か、システムの処理能力定数(2.5)を変更する必要があります。
-          </div>
-        </div>
-
-        {/* Man-Days and Shortage */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">6. 人工数（確保・必要）と過不足の計算</h3>
-          <p className="text-neutral-700 mb-4">
-            稼働計画タブで表示される「確保人工数」「必要人工数」「過不足」は、以下のロジックで月間の総数として計算されます。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            <strong>【確保人工数】 (使える人工数)</strong><br/>
-            店舗に配属された全スタッフの「確保人工数」の合計です。<br/>
-            確保人工数 = (その月の日数) - (スタッフの公休数)<br/>
-            <br/>
-            <strong>【必要人工数】 (推奨される人工数)</strong><br/>
-            AI予測から算出された「1日あたりの必要人員枠」を、その月のカレンダー日数に掛け合わせた合計です。<br/>
-            必要人工数 = (平日の必要人員 × その月の平日日数) + (休日の必要人員 × その月の休日日数)<br/>
-            <br/>
-            <strong>【合計供給力(1日)】</strong><br/>
-            スタッフ全員が1日出勤した場合の、合計のサービス提供能力（対応可能客数）です。<br/>
-            合計供給力(1日) = Σ(スタッフごとの個体能力)<br/>
-            <br/>
-            <strong>【過不足】</strong><br/>
-            確保人工数から「計画計」を引いた値です。現在のスタッフ数で計画通りのシフトが組めるかを示します。<br/>
-            過不足 = 確保人工数 - 計画計<br/>
-            ※ マイナス（赤字）の場合は、計画したシフトに対してスタッフの総枠が足りていないことを示します。<br/>
-            <br/>
-            <strong>【応援必要数 (最終過不足)】</strong><br/>
-            一番右の列に表示される最終的な過不足です。時短パートの出勤日数も加味して計算されます。<br/>
-            応援必要数 = 過不足 + 時短パートの合計日数
-          </div>
-        </div>
+    <div className="space-y-8 max-w-4xl mx-auto pb-12">
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-neutral-200">
+        <h1 className="text-2xl font-bold text-neutral-900 mb-6 border-b pb-4">計算ロジック仕様書</h1>
         
-        {/* Staff Capacity */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">7. スタッフの個体能力計算</h3>
-          <p className="text-neutral-700 mb-4">
-            マスタ設定にて過去の対応人数データをペーストした際、自動的に以下の計算が行われ「個体能力」として設定されます。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800">
-            個体能力 = ペーストされた数値の平均値<br/>
-            ※ エクセル等からコピーした「出勤日の対応人数」の平均がそのまま個体能力（1日あたりの能力）となります。<br/>
-            ※ 小数第2位で四捨五入されます。
-          </div>
-        </div>
+        <div className="space-y-10">
+          {/* 1. TREND予測 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">1</span>
+              TREND予測 (重回帰分析) & 曜日トレンド
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              過去の月別平均客数を目的変数とし、外部要因（広告費、競合フラグ）を説明変数とした重回帰分析を用いてベースとなる客数を予測します。さらに、曜日ごとの来客傾向（曜日指数）を算出し、日別の詳細な予測を行います。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
+              <div>Y ＝ β0 ＋ β1X1 ＋ β2X2</div>
+              <div className="text-xs text-neutral-500">(Y: 予測ベース客数、X1: 広告費、X2: 競合フラグ、β: 偏回帰係数)</div>
+              <div className="mt-2 pt-2 border-t border-neutral-200">曜日指数 ＝ (特定の曜日の平均客数) ÷ (全曜日の平均客数)</div>
+              <div>日別予測 ＝ Y × 季節指数 × 曜日指数</div>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-2">※過去データ不足や多重共線性等で行列計算が不可能な場合は、単純な過去平均値をフォールバックとして使用します。</p>
+          </section>
 
-        {/* Negative Adjustments */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-          <h3 className="text-xl font-bold text-neutral-800 mb-4 border-b pb-2">8. マイナス調整ロジック (休業・休職)</h3>
-          <p className="text-neutral-700 mb-4">
-            店舗の定休日やスタッフの長期休暇など、標準的な計算から除外すべき日数を手動で調整できます。
-          </p>
-          <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 mb-4">
-            <strong>【店舗の休業調整】</strong><br/>
-            各曜日の「調整」欄に入力した日数が、その月の稼働日数から差し引かれます。<br/>
-            有効稼働日数 = カレンダー上の曜日数 - 調整入力数<br/>
-            <br/>
-            <strong>【スタッフの休職調整】</strong><br/>
-            スタッフごとの「休職等」欄に入力した日数が、そのスタッフの月間公休数に加算（実質的な稼働可能日数の減少）されます。<br/>
-            実質稼働可能日数 = (月間日数) - (公休数) - (休職等調整数)
-          </div>
+          {/* 2. FORECAST予測 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">2</span>
+              FORECAST予測 (時系列単回帰分析)
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              時間の経過（月数）を説明変数とし、過去の月別平均客数を目的変数とした単回帰分析を用いて、時間的トレンドに基づいたベース客数を予測します。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
+              <div>Y ＝ a ＋ b*t</div>
+              <div className="text-xs text-neutral-500">(Y: 予測ベース客数、t: 基準月からの経過月数、a: 切片、b: 傾き)</div>
+            </div>
+          </section>
+
+          {/* 3. 月間予算と1日あたりの客数予測 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">3</span>
+              月間予算と1日あたりの客数予測（AIベース / 予算ベース）
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              稼働計画における予測客数は、予算の入力状況に応じて以下のいずれかで計算されます。
+            </p>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="border border-neutral-200 p-4 rounded-lg">
+                <h3 className="text-sm font-bold mb-2 text-blue-600">【AIベース】 (予算未入力時)</h3>
+                <p className="text-xs text-neutral-500">過去データから予測した1日あたりの平日/休日客数を使用し、月間予測客数を算出します。</p>
+              </div>
+              <div className="border border-neutral-200 p-4 rounded-lg">
+                <h3 className="text-sm font-bold mb-2 text-emerald-600">【予算ベース】 (予算入力時)</h3>
+                <p className="text-xs text-neutral-500 mb-3">入力された「月間予算(客数)」を、休日倍率(1.25)に合わせて日割り計算し、1日あたりの客数を逆算します。</p>
+                <div className="bg-neutral-50 p-2 rounded font-mono text-[11px] space-y-1">
+                  <div>総ウェイト ＝ 平日日数 ＋ (休日日数 × 1.25)</div>
+                  <div>平日の予測客数 ＝ 月間予算 ÷ 総ウェイト</div>
+                  <div>休日の予測客数 ＝ 平日の予測客数 × 1.25</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 4. 季節指数 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">4</span>
+              季節指数 (AI予測時)
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              月ごとの客数の変動（季節性）を捉えるための指数です（平日/休日別）。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
+              <div>季節指数 ＝ (対象月の過去平均客数) ÷ (全期間の総平均客数)</div>
+              <div>最終予測客数 ＝ ベース予測値 × 季節指数</div>
+            </div>
+          </section>
+
+          {/* 5. 必要人員枠の計算 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">5</span>
+              必要人員枠の計算 (1日あたり)
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              算出された「1日あたりの予測客数」と、店舗の営業時間、規定の休憩時間（90分＝1.5時間）、および店舗の標準的な処理能力（マーク無：1時間あたり3.5人）に基づいて、1日あたりに必要な推奨スタッフ数を算出します。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2 mb-4">
+              <div>1人の実働時間 ＝ 営業時間 － 1.5時間</div>
+              <div>標準的な1日処理能力 ＝ 1人の実働時間 × 3.5人/時</div>
+              <div>必要人工数(理論値) ＝ 1日の予測客数 ÷ 標準的な1日処理能力</div>
+            </div>
+            <div className="bg-neutral-900 text-white p-4 rounded-lg">
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 opacity-70">最終必要人工数 制約</h4>
+              <ul className="text-sm space-y-1 list-disc list-inside opacity-90">
+                <li>最大値: 店舗の席数 (※計算上の上限値として機能)</li>
+                <li>最小値(平日): 2人工</li>
+                <li>最小値(休日): オープンから37ヶ月以内は3人工、それ以降は2人工</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* 6. 人工数と過不足 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">6</span>
+              人工数（確保・必要）と過不足の計算
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              月間の総数として以下のロジックで計算されます。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
+              <div>確保人工数 ＝ (その月の日数) － (スタッフの公休数)</div>
+              <div>必要人工数 ＝ (平日の必要人員 × 平日日数) ＋ (休日の必要人員 × 休日日数)</div>
+              <div>合計供給力(1日) ＝ Σ(スタッフごとの個体能力)</div>
+              <div>過不足 ＝ 確保人工数 － 計画計 (マイナスの場合はスタッフ枠の不足)</div>
+              <div>応援必要数 (最終過不足) ＝ 過不足 ＋ 時短パートの合計日数</div>
+            </div>
+          </section>
+
+          {/* 7. スタッフの個体能力 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">7</span>
+              スタッフの個体能力と供給力計算
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              出勤する各スタッフの1日あたりの処理能力（個体能力）は、実働時間（営業時間 － 1.5時間）に、付与されたマーク（スキルレベル）に応じた処理能力を掛け合わせて算出します。
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-blue-50 p-3 rounded border border-blue-100">
+                <div className="text-xs font-bold text-blue-600 mb-1">新人マーク</div>
+                <div className="text-lg font-black text-blue-700">2.5 <span className="text-xs font-normal">人/時</span></div>
+              </div>
+              <div className="bg-neutral-50 p-3 rounded border border-neutral-200">
+                <div className="text-xs font-bold text-neutral-600 mb-1">マーク無（標準）</div>
+                <div className="text-lg font-black text-neutral-900">3.5 <span className="text-xs font-normal">人/時</span></div>
+              </div>
+              <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
+                <div className="text-xs font-bold text-emerald-600 mb-1">指導者マーク</div>
+                <div className="text-lg font-black text-emerald-700">4.0 <span className="text-xs font-normal">人/時</span></div>
+              </div>
+            </div>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800">
+              個体能力 ＝ 実働時間 × スキル別係数
+            </div>
+          </section>
+
+          {/* 8. マイナス調整ロジック */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">8</span>
+              マイナス調整ロジック (休業・休職)
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              標準的な計算から除外すべき日数を手動で調整できます。
+            </p>
+            <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
+              <div>有効稼働日数 ＝ カレンダー上の曜日数 － (店舗休業等の調整入力数)</div>
+              <div>実質稼働可能日数 ＝ (月間日数) － (公休数) － (休職等調整数)</div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

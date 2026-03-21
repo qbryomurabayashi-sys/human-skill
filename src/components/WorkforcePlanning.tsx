@@ -943,7 +943,8 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                             <>
                               <td className="p-1 border-r border-neutral-300 sticky left-[180px] bg-white z-10 flex items-center justify-between">
                                 <div className="flex items-center space-x-1">
-                                  {staff.isTrainee && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded font-bold" title="研修生">研</span>}
+                                  {staff.skillLevel === 'trainee' && <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded" title="新人">新人</span>}
+                                  {staff.skillLevel === 'leader' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1 rounded font-bold" title="指導者">指導者</span>}
                                   <span className="truncate max-w-[80px]" title={staff.name}>{staff.name}</span>
                                 </div>
                                 <button onClick={() => handleRemoveStaffFromStore(row.store.id, staff.id)} className="text-neutral-400 hover:text-red-500 ml-1" title="店舗から外す">

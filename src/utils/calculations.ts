@@ -332,18 +332,34 @@ export const calculateBudgetBasedPredictions = (
   return { predictedW: baseWeek, predictedH: baseHol };
 };
 
+export const calculateIndividualCapacity = (hours: number, skillLevel: 'trainee' | 'standard' | 'leader' = 'standard') => {
+  const multipliers = {
+    trainee: 2.5,
+    standard: 3.5,
+    leader: 4.0
+  };
+  const activeHours = Math.max(0, hours - 1.5);
+  return Math.round(activeHours * multipliers[skillLevel] * 10) / 10;
+};
+
 export const calculateRequiredStaff = (
   store: StoreMaster,
   predictedW: number,
   predictedH: number,
   monthsOpen: number
 ) => {
-  const capW = store.hoursW * 2.5;
-  const capH = store.hoursH * 2.5;
+  // 実働時間 = 営業時間 - 1.5時間
+  // 標準的な1日処理能力 = 1人の実働時間 × 3.5人/時
+  const activeHoursW = Math.max(0, store.hoursW - 1.5);
+  const activeHoursH = Math.max(0, store.hoursH - 1.5);
+
+  const capW = activeHoursW * 3.5;
+  const capH = activeHoursH * 3.5;
 
   const needWRaw = capW > 0 ? predictedW / capW : 0;
   const needHRaw = capH > 0 ? predictedH / capH : 0;
 
+  // 制約: 最大値=席数, 最小値(平日)=2, 最小値(休日)=3(37ヶ月以内)or2
   const requiredW = Math.max(2, Math.min(store.seats, Math.round(needWRaw)));
   const requiredH = Math.max(monthsOpen <= 37 ? 3 : 2, Math.min(store.seats, Math.round(needHRaw)));
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Database, RotateCcw, FileJson, Check, AlertCircle } from 'lucide-react';
+import { Database, RotateCcw, FileJson, Check, AlertCircle, Download, Upload } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 
 interface DataManagementProps {
@@ -19,6 +19,44 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
     navigator.clipboard.writeText(data);
     setStatus('success');
     setTimeout(() => setStatus('idle'), 2000);
+  };
+
+  const handleDownload = () => {
+    const data = exportData();
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workforce-data-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatus('success');
+    setTimeout(() => setStatus('idle'), 2000);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setJsonInput(content);
+      const success = importData(content);
+      if (success) {
+        setStatus('success');
+        setTimeout(() => {
+          setStatus('idle');
+          onClose();
+        }, 1000);
+      } else {
+        setStatus('error');
+        setTimeout(() => setStatus('idle'), 3000);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleImport = () => {
@@ -77,6 +115,18 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
               <FileJson className="w-4 h-4" />
               <span>エクスポート (コピー)</span>
             </button>
+            <button
+              onClick={handleDownload}
+              className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>ファイル保存</span>
+            </button>
+            <label className="flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors cursor-pointer">
+              <Upload className="w-4 h-4" />
+              <span>ファイル読込</span>
+              <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+            </label>
             <button
               onClick={handleImport}
               disabled={!jsonInput.trim()}
