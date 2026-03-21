@@ -79,11 +79,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [budgets, setBudgets] = useLocalStorage<MonthlyBudget[]>('app_budgets', []);
 
   const resetAllData = () => {
-    setStores(initialStores);
-    setStaffs(initialStaffs);
-    setVisitors(initialVisitors);
+    setStores([]);
+    setStaffs([]);
+    setVisitors([]);
     setAllocations([]);
-    setFactors(initialFactors);
+    setFactors([]);
     setStoreWorkforcePlans([]);
     setStaffWorkforceDetails([]);
     setBudgets([]);

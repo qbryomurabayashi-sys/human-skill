@@ -5,6 +5,7 @@ import { Users, Calendar, Calculator, CheckCircle, Plus, Trash2, TrendingUp, Cop
 import { StoreWorkforcePlan, StaffWorkforceDetail } from '../types';
 import { InfoTooltip as Tooltip } from './InfoTooltip';
 import { DataManagement } from './DataManagement';
+import { ConfirmModal } from './ConfirmModal';
 
 interface WorkforcePlanningProps {
   currentYearMonth: string;
@@ -14,11 +15,14 @@ interface WorkforcePlanningProps {
 export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYearMonth, setCurrentYearMonth }) => {
   const { stores, staffs, visitors, factors, allocations, setAllocations, storeWorkforcePlans, setStoreWorkforcePlans, staffWorkforceDetails, setStaffWorkforceDetails, budgets, setBudgets, resetAllData } = useAppContext();
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const handleReset = () => {
-    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
-      resetAllData();
-    }
+    setIsConfirmModalOpen(true);
+  };
+
+  const confirmReset = () => {
+    resetAllData();
   };
 
   const dayCounts = getDayCountsInMonth(currentYearMonth);
@@ -418,7 +422,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
             className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>オールリセット</span>
+            <span>全データ削除</span>
           </button>
           <button 
             onClick={handleCopyFromPreviousMonth}
@@ -1152,6 +1156,12 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
         </div>
       </div>
       {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
+      <ConfirmModal 
+        isOpen={isConfirmModalOpen}
+        message="すべてのデータを削除して空にしますか？この操作は取り消せません。"
+        onConfirm={confirmReset}
+        onCancel={() => setIsConfirmModalOpen(false)}
+      />
     </div>
   );
 };

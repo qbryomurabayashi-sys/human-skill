@@ -11,10 +11,16 @@ import { Settings } from './components/Settings';
 import { Analytics } from './components/Analytics';
 import { LogicExplanation } from './components/LogicExplanation';
 import { WorkforcePlanning } from './components/WorkforcePlanning';
+import { MatrixLoading } from './components/MatrixLoading';
 
 export default function App() {
   const [currentYearMonth, setCurrentYearMonth] = useState(new Date().toISOString().slice(0, 7));
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [isBooting, setIsBooting] = useState(true);
+
+  if (isBooting) {
+    return <MatrixLoading onComplete={() => setIsBooting(false)} />;
+  }
 
   return (
     <AppProvider>

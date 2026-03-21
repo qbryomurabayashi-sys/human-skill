@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Database, RotateCcw, FileJson, Check, AlertCircle } from 'lucide-react';
+import { ConfirmModal } from './ConfirmModal';
 
 interface DataManagementProps {
   onClose: () => void;
@@ -10,6 +11,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
   const { exportData, importData, resetAllData } = useAppContext();
   const [jsonInput, setJsonInput] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const handleExport = () => {
     const data = exportData();
@@ -35,10 +37,12 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
   };
 
   const handleReset = () => {
-    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
-      resetAllData();
-      onClose();
-    }
+    setIsConfirmModalOpen(true);
+  };
+
+  const confirmReset = () => {
+    resetAllData();
+    onClose();
   };
 
   return (
@@ -87,7 +91,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
               className="flex items-center space-x-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
-              <span>全データリセット</span>
+              <span>全データ削除 (空にする)</span>
             </button>
           </div>
 
@@ -110,6 +114,12 @@ export const DataManagement: React.FC<DataManagementProps> = ({ onClose }) => {
           <p>※ エクスポートしたデータは、バックアップとして保存しておくことができます。</p>
         </div>
       </div>
+      <ConfirmModal 
+        isOpen={isConfirmModalOpen}
+        message="すべてのデータを削除して空にしますか？この操作は取り消せません。"
+        onConfirm={confirmReset}
+        onCancel={() => setIsConfirmModalOpen(false)}
+      />
     </div>
   );
 };

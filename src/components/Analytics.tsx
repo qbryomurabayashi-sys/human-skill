@@ -5,6 +5,7 @@ import { Filter, MapPin, Store, Calendar as CalendarIcon, TrendingUp, RotateCcw,
 import { InfoTooltip } from './InfoTooltip';
 import { calculatePredictions } from '../utils/calculations';
 import { DataManagement } from './DataManagement';
+import { ConfirmModal } from './ConfirmModal';
 
 interface AnalyticsProps {
   currentYearMonth: string;
@@ -16,11 +17,14 @@ type Timeframe = '12months' | 'quarterly' | 'weekly' | 'daily' | 'future';
 export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
   const { stores, visitors, budgets, factors, resetAllData } = useAppContext();
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
   const handleReset = () => {
-    if (window.confirm('すべてのデータを初期状態にリセットしますか？この操作は取り消せません。')) {
-      resetAllData();
-    }
+    setIsConfirmModalOpen(true);
+  };
+
+  const confirmReset = () => {
+    resetAllData();
   };
 
   const [viewMode, setViewMode] = useState<ViewMode>('all');
@@ -314,7 +318,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
             className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>オールリセット</span>
+            <span>全データ削除</span>
           </button>
         </div>
       </div>
@@ -456,6 +460,12 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
         </div>
       </div>
       {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
+      <ConfirmModal 
+        isOpen={isConfirmModalOpen}
+        message="すべてのデータを削除して空にしますか？この操作は取り消せません。"
+        onConfirm={confirmReset}
+        onCancel={() => setIsConfirmModalOpen(false)}
+      />
     </div>
   );
 };
