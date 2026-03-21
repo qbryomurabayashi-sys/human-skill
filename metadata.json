@@ -1,0 +1,5 @@
+{
+  "name": "店舗人員適正化シミュレーター PRO",
+  "description": "店舗ごとの人員適正化および配置シミュレーションを行うWebアプリケーション",
+  "requestFramePermissions": []
+}
