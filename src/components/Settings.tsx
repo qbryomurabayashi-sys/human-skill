@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { getDaysInMonth } from '../utils/calculations';
-import { RotateCcw, Database } from 'lucide-react';
+import { RotateCcw, Database, Trash2, GripVertical } from 'lucide-react';
 import { DataManagement } from './DataManagement';
 import { ConfirmModal } from './ConfirmModal';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { StoreMaster } from '../types';
 
 export const Settings: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'stores' | 'staffs' | 'visitors' | 'factors'>('stores');
+  const [activeTab, setActiveTab] = useState<'stores' | 'staffs' | 'visitors'>('stores');
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const { resetAllData } = useAppContext();
@@ -24,13 +26,7 @@ export const Settings: React.FC = () => {
       <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
         <h1 className="text-2xl font-bold text-neutral-900">マスタ設定</h1>
         <div className="flex space-x-3">
-          <button 
-            onClick={() => setIsDataModalOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-white border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
-          >
-            <Database className="w-4 h-4 text-indigo-600" />
-            <span>JSONコード入力・出力</span>
-          </button>
+
           <button 
             onClick={handleReset}
             className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
@@ -46,14 +42,12 @@ export const Settings: React.FC = () => {
           <button onClick={() => setActiveTab('stores')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'stores' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>店舗マスタ</button>
           <button onClick={() => setActiveTab('staffs')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'staffs' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>スタッフマスタ</button>
           <button onClick={() => setActiveTab('visitors')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'visitors' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>日別客数カレンダー</button>
-          <button onClick={() => setActiveTab('factors')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'factors' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>外部要因</button>
         </div>
 
         <div className="p-6 overflow-x-auto">
           {activeTab === 'stores' && <StoreSettings />}
           {activeTab === 'staffs' && <StaffSettings />}
           {activeTab === 'visitors' && <VisitorSettings />}
-          {activeTab === 'factors' && <FactorSettings />}
         </div>
       </div>
       {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
@@ -69,6 +63,7 @@ export const Settings: React.FC = () => {
 
 const StoreSettings = () => {
   const { stores, setStores } = useAppContext();
+  const [storeToDelete, setStoreToDelete] = useState<string | null>(null);
 
   const handleChange = (index: number, field: keyof typeof stores[0], value: string | number) => {
     const newStores = [...stores];
@@ -78,44 +73,106 @@ const StoreSettings = () => {
 
   const handleAddStore = () => {
     const newId = `S${String(stores.length + 1).padStart(2, '0')}`;
-    setStores([...stores, { id: newId, name: '新店舗', hoursW: 10, hoursH: 10, seats: 10, openDate: new Date().toISOString().split('T')[0] }]);
+    setStores([...stores, { id: newId, name: '新店舗', hoursW: 10, hoursH: 10, seats: 10, openDate: new Date().toISOString().split('T')[0], area: '未設定', order: stores.length }]);
   };
+
+  const handleDeleteStore = (id: string) => {
+    setStoreToDelete(id);
+  };
+
+  const confirmDeleteStore = () => {
+    if (storeToDelete) {
+      setStores(stores.filter(s => s.id !== storeToDelete));
+      setStoreToDelete(null);
+    }
+  };
+
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+
+    const items = Array.from(stores);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    if (!reorderedItem) return;
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    // Update order property
+    const updatedItems = items.map((item, index) => ({
+      ...(item as StoreMaster),
+      order: index
+    }));
+
+    setStores(updatedItems);
+  };
+
+  // Sort stores by order before rendering
+  const sortedStores = [...stores].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
   return (
     <div>
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="bg-neutral-100 text-neutral-600 text-xs uppercase tracking-wider">
-            <th className="p-3">ID</th>
-            <th className="p-3">店舗名</th>
-            <th className="p-3">平日営業時間</th>
-            <th className="p-3">休日営業時間</th>
-            <th className="p-3">席数</th>
-            <th className="p-3">オープン日</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-200">
-          {stores.map((store, i) => (
-            <tr key={store.id}>
-              <td className="p-3 font-mono text-sm">{store.id}</td>
-              <td className="p-3"><input type="text" value={store.name} onChange={e => handleChange(i, 'name', e.target.value)} className="border p-1 rounded w-full" /></td>
-              <td className="p-3"><input type="number" value={store.hoursW} onChange={e => handleChange(i, 'hoursW', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
-              <td className="p-3"><input type="number" value={store.hoursH} onChange={e => handleChange(i, 'hoursH', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
-              <td className="p-3"><input type="number" value={store.seats} onChange={e => handleChange(i, 'seats', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
-              <td className="p-3"><input type="date" value={store.openDate || ''} onChange={e => handleChange(i, 'openDate', e.target.value)} className="border p-1 rounded w-full" /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="stores">
+          {(provided) => (
+            <table className="w-full text-left border-collapse" {...provided.droppableProps} ref={provided.innerRef}>
+              <thead>
+                <tr className="bg-neutral-100 text-neutral-600 text-xs uppercase tracking-wider">
+                  <th className="p-3 w-10"></th>
+                  <th className="p-3">ID</th>
+                  <th className="p-3">エリア</th>
+                  <th className="p-3">店舗名</th>
+                  <th className="p-3">平日営業時間</th>
+                  <th className="p-3">休日営業時間</th>
+                  <th className="p-3">席数</th>
+                  <th className="p-3">オープン日</th>
+                  <th className="p-3 w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {sortedStores.map((store, i) => (
+                  // @ts-ignore
+                  <Draggable key={store.id} draggableId={store.id} index={i}>
+                    {(provided) => (
+                      <tr ref={provided.innerRef} {...provided.draggableProps} className="bg-white">
+                        <td className="p-3" {...provided.dragHandleProps}>
+                          <GripVertical className="w-5 h-5 text-neutral-400 cursor-grab" />
+                        </td>
+                        <td className="p-3 font-mono text-sm">{store.id}</td>
+                        <td className="p-3"><input type="text" value={store.area || ''} onChange={e => handleChange(i, 'area', e.target.value)} className="border p-1 rounded w-full" placeholder="エリア" /></td>
+                        <td className="p-3"><input type="text" value={store.name} onChange={e => handleChange(i, 'name', e.target.value)} className="border p-1 rounded w-full" /></td>
+                        <td className="p-3"><input type="number" value={store.hoursW} onChange={e => handleChange(i, 'hoursW', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
+                        <td className="p-3"><input type="number" value={store.hoursH} onChange={e => handleChange(i, 'hoursH', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
+                        <td className="p-3"><input type="number" value={store.seats} onChange={e => handleChange(i, 'seats', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
+                        <td className="p-3"><input type="date" value={store.openDate || ''} onChange={e => handleChange(i, 'openDate', e.target.value)} className="border p-1 rounded w-full" /></td>
+                        <td className="p-3">
+                          <button onClick={() => handleDeleteStore(store.id)} className="text-red-500 hover:text-red-700 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </tbody>
+            </table>
+          )}
+        </Droppable>
+      </DragDropContext>
       <button onClick={handleAddStore} className="mt-4 bg-neutral-900 text-white px-4 py-2 rounded text-sm font-medium hover:bg-neutral-800 transition-colors">
         ＋ 店舗を追加
       </button>
+      <ConfirmModal 
+        isOpen={!!storeToDelete}
+        message="この店舗を削除してもよろしいですか？"
+        onConfirm={confirmDeleteStore}
+        onCancel={() => setStoreToDelete(null)}
+      />
     </div>
   );
 };
 
 const StaffSettings = () => {
   const { staffs, setStaffs } = useAppContext();
+  const [staffToDelete, setStaffToDelete] = useState<string | null>(null);
 
   const handleChange = (index: number, field: keyof typeof staffs[0], value: string | number) => {
     const newStaffs = [...staffs];
@@ -126,6 +183,17 @@ const StaffSettings = () => {
   const handleAddStaff = () => {
     const newId = `ST${String(staffs.length + 1).padStart(2, '0')}`;
     setStaffs([...staffs, { id: newId, name: '新スタッフ', capacity: 20, daysOff: 8 }]);
+  };
+
+  const handleDeleteStaff = (id: string) => {
+    setStaffToDelete(id);
+  };
+
+  const confirmDeleteStaff = () => {
+    if (staffToDelete) {
+      setStaffs(staffs.filter(s => s.id !== staffToDelete));
+      setStaffToDelete(null);
+    }
   };
 
   const handleCapacityPaste = (index: number, e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -166,6 +234,7 @@ const StaffSettings = () => {
             <th className="p-3">個体能力</th>
             <th className="p-3">契約公休数</th>
             <th className="p-3">過去実績ペースト (自動計算)</th>
+            <th className="p-3 w-10"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-200">
@@ -197,6 +266,11 @@ const StaffSettings = () => {
                   title="過去の対応人数をタブ区切りでペーストすると平均値を自動計算します"
                 />
               </td>
+              <td className="p-3">
+                <button onClick={() => handleDeleteStaff(staff.id)} className="text-red-500 hover:text-red-700 p-1">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -204,6 +278,12 @@ const StaffSettings = () => {
       <button onClick={handleAddStaff} className="mt-4 bg-neutral-900 text-white px-4 py-2 rounded text-sm font-medium hover:bg-neutral-800 transition-colors">
         ＋ スタッフを追加
       </button>
+      <ConfirmModal 
+        isOpen={!!staffToDelete}
+        message="このスタッフを削除してもよろしいですか？"
+        onConfirm={confirmDeleteStaff}
+        onCancel={() => setStaffToDelete(null)}
+      />
     </div>
   );
 };
@@ -212,6 +292,8 @@ const VisitorSettings = () => {
   const { visitors, setVisitors, stores } = useAppContext();
   const [selectedStore, setSelectedStore] = useState(stores[0]?.id || '');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+
+  const [visitorToDelete, setVisitorToDelete] = useState<string | null>(null);
 
   const storeVisitors = visitors.filter(v => v.storeId === selectedStore && v.date.startsWith(selectedMonth)).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -258,6 +340,17 @@ const VisitorSettings = () => {
     e.currentTarget.value = ''; // clear textarea after paste
   };
 
+  const handleDeleteVisitor = (date: string) => {
+    setVisitorToDelete(date);
+  };
+
+  const confirmDeleteVisitor = () => {
+    if (visitorToDelete) {
+      setVisitors(prev => prev.filter(v => !(v.storeId === selectedStore && v.date === visitorToDelete)));
+      setVisitorToDelete(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex space-x-4">
@@ -284,6 +377,7 @@ const VisitorSettings = () => {
               <th className="p-3">日付</th>
               <th className="p-3">客数</th>
               <th className="p-3">休日フラグ</th>
+              <th className="p-3 w-10"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200">
@@ -292,69 +386,23 @@ const VisitorSettings = () => {
                 <td className="p-3 font-mono text-sm">{v.date}</td>
                 <td className="p-3"><input type="number" value={v.visitors} onChange={e => handleChange(v.date, 'visitors', Number(e.target.value))} className="border p-1 rounded w-32" /></td>
                 <td className="p-3"><input type="checkbox" checked={v.isHoliday} onChange={e => handleChange(v.date, 'isHoliday', e.target.checked)} className="w-5 h-5" /></td>
+                <td className="p-3">
+                  <button onClick={() => handleDeleteVisitor(v.date)} className="text-red-500 hover:text-red-700 p-1">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <ConfirmModal 
+        isOpen={!!visitorToDelete}
+        message="この日の客数データを削除してもよろしいですか？"
+        onConfirm={confirmDeleteVisitor}
+        onCancel={() => setVisitorToDelete(null)}
+      />
     </div>
   );
 };
 
-const FactorSettings = () => {
-  const { factors, setFactors, stores } = useAppContext();
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-
-  const monthFactors = stores.map(store => {
-    const existing = factors.find(f => f.storeId === store.id && f.yearMonth === selectedMonth);
-    return existing || { yearMonth: selectedMonth, storeId: store.id, adSpend: 0, competitorFlg: 0 as 0 | 1 };
-  });
-
-  const handleChange = (storeId: string, field: 'adSpend' | 'competitorFlg', value: number) => {
-    setFactors(prev => {
-      const newFactors = [...prev];
-      const index = newFactors.findIndex(f => f.storeId === storeId && f.yearMonth === selectedMonth);
-      if (index >= 0) {
-        newFactors[index] = { ...newFactors[index], [field]: value };
-      } else {
-        newFactors.push({ yearMonth: selectedMonth, storeId, adSpend: field === 'adSpend' ? value : 0, competitorFlg: field === 'competitorFlg' ? value as 0 | 1 : 0 });
-      }
-      return newFactors;
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex space-x-4">
-        <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="border p-2 rounded" />
-      </div>
-
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="bg-neutral-100 text-neutral-600 text-xs uppercase tracking-wider">
-            <th className="p-3">店舗</th>
-            <th className="p-3">広告費</th>
-            <th className="p-3">競合出店フラグ (0 or 1)</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-200">
-          {monthFactors.map((f) => {
-            const store = stores.find(s => s.id === f.storeId);
-            return (
-              <tr key={f.storeId}>
-                <td className="p-3 font-medium">{store?.name}</td>
-                <td className="p-3"><input type="number" value={f.adSpend} onChange={e => handleChange(f.storeId, 'adSpend', Number(e.target.value))} className="border p-1 rounded w-full" /></td>
-                <td className="p-3">
-                  <select value={f.competitorFlg} onChange={e => handleChange(f.storeId, 'competitorFlg', Number(e.target.value))} className="border p-1 rounded w-full">
-                    <option value={0}>0 (なし)</option>
-                    <option value={1}>1 (あり)</option>
-                  </select>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-};

@@ -11,14 +11,14 @@ interface StoreCardProps {
 }
 
 export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth }) => {
-  const { visitors, factors, allocations, setAllocations, staffs, staffWorkforceDetails } = useAppContext();
+  const { visitors, allocations, setAllocations, staffs, staffWorkforceDetails } = useAppContext();
 
   const daysInMonth = getDaysInMonth(currentYearMonth);
   const monthsOpen = calculateMonthsOpen(store.openDate, currentYearMonth);
 
   const { predictedW, predictedH, forecastW, forecastH, seasonalIndexW, seasonalIndexH } = useMemo(() => {
-    return calculatePredictions(visitors, factors, store.id, currentYearMonth);
-  }, [visitors, factors, store.id, currentYearMonth]);
+    return calculatePredictions(visitors, store.id, currentYearMonth);
+  }, [visitors, store.id, currentYearMonth]);
 
   const { requiredW, requiredH } = useMemo(() => {
     return calculateRequiredStaff(store, predictedW, predictedH, monthsOpen);
@@ -97,26 +97,26 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 border-b border-neutral-100 bg-white text-sm">
         <div className="flex flex-col p-2 rounded bg-blue-50 border border-blue-100">
           <span className="text-[10px] font-bold text-blue-600 uppercase">公出 (プラス)</span>
-          <span className="text-lg font-bold text-blue-700">+{totals.extra} <span className="text-xs font-normal">人工</span></span>
+          <span className="text-lg font-bold text-blue-700">+{totals.extra}</span>
         </div>
         <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
           <span className="text-[10px] font-bold text-red-600 uppercase">有休 (マイナス)</span>
-          <span className="text-lg font-bold text-red-700">-{totals.paid} <span className="text-xs font-normal">人工</span></span>
+          <span className="text-lg font-bold text-red-700">-{totals.paid}</span>
         </div>
         <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
           <span className="text-[10px] font-bold text-red-600 uppercase">応援 (マイナス)</span>
-          <span className="text-lg font-bold text-red-700">-{totals.support} <span className="text-xs font-normal">人工</span></span>
+          <span className="text-lg font-bold text-red-700">-{totals.support}</span>
         </div>
         <div className="flex flex-col p-2 rounded bg-red-50 border border-red-100">
           <span className="text-[10px] font-bold text-red-600 uppercase">研修 (マイナス)</span>
-          <span className="text-lg font-bold text-red-700">-{totals.training} <span className="text-xs font-normal">人工</span></span>
+          <span className="text-lg font-bold text-red-700">-{totals.training}</span>
         </div>
       </div>
 
       <div className="px-4 py-2 bg-neutral-900 text-white flex justify-between items-center">
-        <span className="text-xs font-bold">調整後 合計確保人工数</span>
+        <span className="text-xs font-bold">調整後 合計確保数</span>
         <Tooltip content="(月間日数 - 公休数) + 公出 - 有休 - 応援 - 研修" position="bottom">
-          <span className="text-lg font-black cursor-help">{adjustedManDays} <span className="text-xs font-normal opacity-70">人工</span></span>
+          <span className="text-lg font-black cursor-help">{adjustedManDays}</span>
         </Tooltip>
       </div>
 
@@ -166,7 +166,7 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
               <th className="p-3 font-semibold w-12 text-center">No</th>
               <th className="p-3 font-semibold w-64">氏名</th>
               <th className="p-3 font-semibold text-right">公休数</th>
-              <th className="p-3 font-semibold text-right">確保人工数</th>
+              <th className="p-3 font-semibold text-right">確保数</th>
               <th className="p-3 font-semibold text-right">処理能力</th>
               <th className="p-3 font-semibold text-right">月間個体能力</th>
             </tr>
@@ -184,7 +184,7 @@ export const StoreCard: React.FC<StoreCardProps> = ({ store, currentYearMonth })
                 const isDuplicate = staffId ? staffCounts[staffId] > 1 : false;
                 
                 const workableDays = staff ? daysInMonth - staff.daysOff : 0;
-                const monthlyCapacity = staff ? workableDays * staff.capacity : 0;
+                const monthlyCapacity = staff ? Math.round(workableDays * staff.capacity * 10) / 10 : 0;
 
                 return (
                   <tr key={index} className={`transition-colors hover:bg-neutral-50 ${isDuplicate ? 'bg-red-50' : ''}`}>

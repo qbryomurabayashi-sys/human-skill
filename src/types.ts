@@ -35,6 +35,7 @@ export interface StoreMaster {
   seats: number;
   openDate: string; // YYYY-MM-DD
   area?: string;
+  order?: number;
 }
 
 export type SkillLevel = 'trainee' | 'standard' | 'leader';
@@ -61,13 +62,6 @@ export interface Allocation {
   slots: (string | null)[];
 }
 
-export interface ExternalFactor {
-  yearMonth: string; // YYYY-MM
-  storeId: string;
-  adSpend: number;
-  competitorFlg: 0 | 1;
-}
-
 export interface MonthlyBudget {
   yearMonth: string;
   storeId: string;
@@ -79,6 +73,5 @@ export type AppState = {
   staffs: StaffMaster[];
   visitors: DailyVisitor[];
   allocations: Allocation[];
-  factors: ExternalFactor[];
   budgets: MonthlyBudget[];
 };

@@ -93,32 +93,32 @@ export const LogicExplanation: React.FC = () => {
             <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2 mb-4">
               <div>1人の実働時間 ＝ 営業時間 － 1.5時間</div>
               <div>標準的な1日処理能力 ＝ 1人の実働時間 × 3.5人/時</div>
-              <div>必要人工数(理論値) ＝ 1日の予測客数 ÷ 標準的な1日処理能力</div>
+              <div>必要数(理論値) ＝ 1日の予測客数 ÷ 標準的な1日処理能力</div>
             </div>
             <div className="bg-neutral-900 text-white p-4 rounded-lg">
-              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 opacity-70">最終必要人工数 制約</h4>
+              <h4 className="text-xs font-bold uppercase tracking-widest mb-2 opacity-70">最終必要数 制約</h4>
               <ul className="text-sm space-y-1 list-disc list-inside opacity-90">
                 <li>最大値: 店舗の席数 (※計算上の上限値として機能)</li>
-                <li>最小値(平日): 2人工</li>
-                <li>最小値(休日): オープンから37ヶ月以内は3人工、それ以降は2人工</li>
+                <li>最小値(平日): 2</li>
+                <li>最小値(休日): オープンから37ヶ月以内は3、それ以降は2</li>
               </ul>
             </div>
           </section>
 
-          {/* 6. 人工数と過不足 */}
+          {/* 6. 人数と過不足 */}
           <section>
             <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
               <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">6</span>
-              人工数（確保・必要）と過不足の計算
+              人数（確保・必要）と過不足の計算
             </h2>
             <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
               月間の総数として以下のロジックで計算されます。
             </p>
             <div className="bg-neutral-50 p-4 rounded-lg font-mono text-sm text-neutral-800 space-y-2">
-              <div>確保人工数 ＝ (その月の日数) － (スタッフの公休数)</div>
-              <div>必要人工数 ＝ (平日の必要人員 × 平日日数) ＋ (休日の必要人員 × 休日日数)</div>
+              <div>確保数 ＝ (その月の日数) － (スタッフの公休数)</div>
+              <div>必要数 ＝ (平日の必要人員 × 平日日数) ＋ (休日の必要人員 × 休日日数)</div>
               <div>合計供給力(1日) ＝ Σ(スタッフごとの個体能力)</div>
-              <div>過不足 ＝ 確保人工数 － 計画計 (マイナスの場合はスタッフ枠の不足)</div>
+              <div>過不足 ＝ 確保数 － 計画計 (マイナスの場合はスタッフ枠の不足)</div>
               <div>応援必要数 (最終過不足) ＝ 過不足 ＋ 時短パートの合計日数</div>
             </div>
           </section>

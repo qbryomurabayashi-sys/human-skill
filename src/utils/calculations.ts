@@ -1,4 +1,4 @@
-import { StoreMaster, DailyVisitor, ExternalFactor } from '../types';
+import { StoreMaster, DailyVisitor } from '../types';
 
 export const getDaysInMonth = (yearMonth: string) => {
   const [year, month] = yearMonth.split('-').map(Number);
@@ -64,68 +64,6 @@ export function simpleLinearRegression(x: number[], y: number[], targetX: number
   return slope * targetX + intercept;
 }
 
-function invert3x3(m: number[][]): number[][] | null {
-  const det = m[0][0] * (m[1][1] * m[2][2] - m[2][1] * m[1][2]) -
-              m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-              m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-  if (Math.abs(det) < 1e-9) return null;
-
-  return [
-    [
-      (m[1][1] * m[2][2] - m[2][1] * m[1][2]) / det,
-      (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det,
-      (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det
-    ],
-    [
-      (m[1][2] * m[2][0] - m[1][0] * m[2][2]) / det,
-      (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det,
-      (m[1][0] * m[0][2] - m[0][0] * m[1][2]) / det
-    ],
-    [
-      (m[1][0] * m[2][1] - m[2][0] * m[1][1]) / det,
-      (m[2][0] * m[0][1] - m[0][0] * m[2][1]) / det,
-      (m[0][0] * m[1][1] - m[1][0] * m[0][1]) / det
-    ]
-  ];
-}
-
-function multipleRegression(X: number[][], Y: number[]): number[] | null {
-  const N = X.length;
-  if (N < 3) return null;
-
-  const XtX = [
-    [0, 0, 0],
-    [0, 0, 0],
-    [0, 0, 0]
-  ];
-  for (let i = 0; i < N; i++) {
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 3; c++) {
-        XtX[r][c] += X[i][r] * X[i][c];
-      }
-    }
-  }
-
-  const invXtX = invert3x3(XtX);
-  if (!invXtX) return null;
-
-  const XtY = [0, 0, 0];
-  for (let i = 0; i < N; i++) {
-    for (let r = 0; r < 3; r++) {
-      XtY[r] += X[i][r] * Y[i];
-    }
-  }
-
-  const Beta = [0, 0, 0];
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 3; c++) {
-      Beta[r] += invXtX[r][c] * XtY[c];
-    }
-  }
-
-  return Beta;
-}
-
 export const calculateDayOfWeekPredictions = (
   visitors: DailyVisitor[],
   storeId: string,
@@ -164,7 +102,6 @@ export const calculateDayOfWeekPredictions = (
 
 export const calculatePredictions = (
   visitors: DailyVisitor[],
-  factors: ExternalFactor[],
   storeId: string,
   targetYearMonth: string
 ) => {
@@ -192,10 +129,6 @@ export const calculatePredictions = (
   let overallWTotal = 0, overallWCount = 0;
   let overallHTotal = 0, overallHCount = 0;
 
-  const X: number[][] = [];
-  const Yw: number[] = [];
-  const Yh: number[] = [];
-
   Object.keys(monthlyData).forEach(ym => {
     const m = ym.split('-')[1];
     const data = monthlyData[ym];
@@ -211,19 +144,6 @@ export const calculatePredictions = (
       targetMonthHTotal += data.hTotal;
       targetMonthHCount += data.hCount;
     }
-
-    const factor = factors.find(f => f.storeId === storeId && f.yearMonth === ym);
-    const adSpend = factor ? factor.adSpend : 0;
-    const compFlg = factor ? factor.competitorFlg : 0;
-
-    const wAvg = data.wCount > 0 ? data.wTotal / data.wCount : 0;
-    const hAvg = data.hCount > 0 ? data.hTotal / data.hCount : 0;
-
-    if (wAvg > 0 && hAvg > 0) {
-      X.push([1, adSpend, compFlg]);
-      Yw.push(wAvg);
-      Yh.push(hAvg);
-    }
   });
 
   const overallWAverage = overallWCount > 0 ? overallWTotal / overallWCount : 0;
@@ -234,24 +154,6 @@ export const calculatePredictions = (
 
   const seasonalIndexW = overallWAverage > 0 ? targetMonthWAverage / overallWAverage : 1;
   const seasonalIndexH = overallHAverage > 0 ? targetMonthHAverage / overallHAverage : 1;
-
-  // Multiple Regression for base prediction
-  const betaW = multipleRegression(X, Yw);
-  const betaH = multipleRegression(X, Yh);
-
-  const targetFactor = factors.find(f => f.storeId === storeId && f.yearMonth === targetYearMonth);
-  const targetAdSpend = targetFactor ? targetFactor.adSpend : 0;
-  const targetCompFlg = targetFactor ? targetFactor.competitorFlg : 0;
-
-  let baseW = overallWAverage;
-  let baseH = overallHAverage;
-
-  if (betaW) {
-    baseW = betaW[0] + betaW[1] * targetAdSpend + betaW[2] * targetCompFlg;
-  }
-  if (betaH) {
-    baseH = betaH[0] + betaH[1] * targetAdSpend + betaH[2] * targetCompFlg;
-  }
 
   // FORECAST (Simple Linear Regression based on time)
   let forecastWBase = overallWAverage;
@@ -281,8 +183,9 @@ export const calculatePredictions = (
   }
 
   // Final prediction = base * seasonal index
-  const predictedW = Math.max(0, baseW * seasonalIndexW);
-  const predictedH = Math.max(0, baseH * seasonalIndexH);
+  // Since we removed external factors, we'll just use the forecast base as the main prediction
+  const predictedW = Math.max(0, forecastWBase * seasonalIndexW);
+  const predictedH = Math.max(0, forecastHBase * seasonalIndexH);
   
   const forecastW = Math.max(0, forecastWBase * seasonalIndexW);
   const forecastH = Math.max(0, forecastHBase * seasonalIndexH);

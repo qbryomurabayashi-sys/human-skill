@@ -15,7 +15,7 @@ type ViewMode = 'all' | 'area' | 'store';
 type Timeframe = '12months' | 'quarterly' | 'weekly' | 'daily' | 'future';
 
 export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
-  const { stores, visitors, budgets, factors, resetAllData } = useAppContext();
+  const { stores, visitors, budgets, resetAllData } = useAppContext();
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
@@ -32,19 +32,21 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
   const [selectedStore, setSelectedStore] = useState<string>('all');
   const [timeframe, setTimeframe] = useState<Timeframe>('12months');
 
+  const sortedStores = useMemo(() => [...stores].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), [stores]);
+
   // Extract unique areas
   const areas = useMemo(() => {
-    const uniqueAreas = new Set(stores.map(s => s.area).filter(Boolean) as string[]);
+    const uniqueAreas = new Set(sortedStores.map(s => s.area).filter(Boolean) as string[]);
     return Array.from(uniqueAreas);
-  }, [stores]);
+  }, [sortedStores]);
 
   // Filter stores based on view mode
   const filteredStores = useMemo(() => {
-    if (viewMode === 'all') return stores;
-    if (viewMode === 'area' && selectedArea !== 'all') return stores.filter(s => s.area === selectedArea);
-    if (viewMode === 'store' && selectedStore !== 'all') return stores.filter(s => s.id === selectedStore);
-    return stores;
-  }, [stores, viewMode, selectedArea, selectedStore]);
+    if (viewMode === 'all') return sortedStores;
+    if (viewMode === 'area' && selectedArea !== 'all') return sortedStores.filter(s => s.area === selectedArea);
+    if (viewMode === 'store' && selectedStore !== 'all') return sortedStores.filter(s => s.id === selectedStore);
+    return sortedStores;
+  }, [sortedStores, viewMode, selectedArea, selectedStore]);
 
   const filteredStoreIds = useMemo(() => new Set(filteredStores.map(s => s.id)), [filteredStores]);
 
@@ -177,12 +179,10 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
 
       filteredStores.forEach(store => {
         const storeBudgets = budgets.filter(b => b.storeId === store.id);
-        const storeFactors = factors.filter(f => f.storeId === store.id);
         const storeVisitors = visitors.filter(v => v.storeId === store.id);
 
         const preds = calculatePredictions(
           storeVisitors,
-          storeFactors,
           store.id,
           ym
         );
@@ -203,7 +203,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
         budget: Math.round(totalBudget)
       };
     });
-  }, [filteredStores, budgets, factors, visitors, timeframe, currentYearMonth]);
+  }, [filteredStores, budgets, visitors, timeframe, currentYearMonth]);
 
 
   const renderGraph = () => {
@@ -306,13 +306,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
           <p className="text-neutral-600">店舗、エリア、全店舗ブロックごとの客数データを様々な期間で分析します。</p>
         </div>
         <div className="flex items-center space-x-4">
-          <button 
-            onClick={() => setIsDataModalOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-white border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
-          >
-            <Database className="w-4 h-4 text-indigo-600" />
-            <span>JSONコード入力・出力</span>
-          </button>
+
           <button 
             onClick={handleReset}
             className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
@@ -367,7 +361,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
               className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
             >
               <option value="all">すべての店舗</option>
-              {stores.map(store => (
+              {sortedStores.map(store => (
                 <option key={store.id} value={store.id}>{store.name}</option>
               ))}
             </select>
@@ -434,14 +428,14 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
                   <td className="p-3 font-medium text-neutral-800">{row.name}</td>
                   <td className="p-3 text-right text-neutral-600">
                     {timeframe === 'future' 
-                      ? `${(row as any).predicted.toLocaleString()} 人工 (予測)` 
-                      : `${row.avgDaily.toLocaleString()} 人工`}
+                      ? `${(row as any).predicted.toLocaleString()} (予測)` 
+                      : `${row.avgDaily.toLocaleString()}`}
                   </td>
                   {timeframe !== 'weekly' && timeframe !== 'daily' && (
                     <td className="p-3 text-right text-neutral-600">
                       {timeframe === 'future' 
-                        ? `${(row as any).budget.toLocaleString()} 人工 (予算)` 
-                        : 'total' in row ? row.total.toLocaleString() : '-'} 人工
+                        ? `${(row as any).budget.toLocaleString()} (予算)` 
+                        : 'total' in row ? row.total.toLocaleString() : '-'}
                     </td>
                   )}
                 </tr>

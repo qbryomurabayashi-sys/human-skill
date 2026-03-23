@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { StoreMaster, StaffMaster, DailyVisitor, Allocation, ExternalFactor, StoreWorkforcePlan, StaffWorkforceDetail, MonthlyBudget } from '../types';
+import { StoreMaster, StaffMaster, DailyVisitor, Allocation, StoreWorkforcePlan, StaffWorkforceDetail, MonthlyBudget } from '../types';
 
 interface AppContextType {
   stores: StoreMaster[];
@@ -11,8 +11,6 @@ interface AppContextType {
   setVisitors: React.Dispatch<React.SetStateAction<DailyVisitor[]>>;
   allocations: Allocation[];
   setAllocations: React.Dispatch<React.SetStateAction<Allocation[]>>;
-  factors: ExternalFactor[];
-  setFactors: React.Dispatch<React.SetStateAction<ExternalFactor[]>>;
   storeWorkforcePlans: StoreWorkforcePlan[];
   setStoreWorkforcePlans: React.Dispatch<React.SetStateAction<StoreWorkforcePlan[]>>;
   staffWorkforceDetails: StaffWorkforceDetail[];
@@ -27,10 +25,10 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const initialStores: StoreMaster[] = [
-  { id: 'S01', name: '渋谷本店', hoursW: 10, hoursH: 12, seats: 8, openDate: '2020-04-01', area: '東京' },
-  { id: 'S02', name: '新宿東口店', hoursW: 11, hoursH: 11, seats: 6, openDate: '2022-04-01', area: '東京' },
-  { id: 'S03', name: '横浜西口店', hoursW: 10, hoursH: 12, seats: 10, openDate: '2019-11-01', area: '神奈川' },
-  { id: 'S04', name: '大宮店', hoursW: 10, hoursH: 10, seats: 8, openDate: '2023-05-20', area: '埼玉' },
+  { id: 'S01', name: '渋谷本店', hoursW: 10, hoursH: 12, seats: 8, openDate: '2020-04-01', area: '東京', order: 0 },
+  { id: 'S02', name: '新宿東口店', hoursW: 11, hoursH: 11, seats: 6, openDate: '2022-04-01', area: '東京', order: 1 },
+  { id: 'S03', name: '横浜西口店', hoursW: 10, hoursH: 12, seats: 10, openDate: '2019-11-01', area: '神奈川', order: 2 },
+  { id: 'S04', name: '大宮店', hoursW: 10, hoursH: 10, seats: 8, openDate: '2023-05-20', area: '埼玉', order: 3 },
 ];
 
 const initialStaffs: StaffMaster[] = [
@@ -63,17 +61,11 @@ const generateMockVisitors = () => {
 
 const initialVisitors = generateMockVisitors();
 
-const initialFactors: ExternalFactor[] = [
-  { yearMonth: new Date().toISOString().slice(0, 7), storeId: 'S01', adSpend: 100000, competitorFlg: 0 },
-  { yearMonth: new Date().toISOString().slice(0, 7), storeId: 'S02', adSpend: 50000, competitorFlg: 1 },
-];
-
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [stores, setStores] = useLocalStorage<StoreMaster[]>('app_stores', initialStores);
   const [staffs, setStaffs] = useLocalStorage<StaffMaster[]>('app_staffs', initialStaffs);
   const [visitors, setVisitors] = useLocalStorage<DailyVisitor[]>('app_visitors', initialVisitors);
   const [allocations, setAllocations] = useLocalStorage<Allocation[]>('app_allocations', []);
-  const [factors, setFactors] = useLocalStorage<ExternalFactor[]>('app_factors', initialFactors);
   const [storeWorkforcePlans, setStoreWorkforcePlans] = useLocalStorage<StoreWorkforcePlan[]>('app_store_workforce_plans', []);
   const [staffWorkforceDetails, setStaffWorkforceDetails] = useLocalStorage<StaffWorkforceDetail[]>('app_staff_workforce_details', []);
   const [budgets, setBudgets] = useLocalStorage<MonthlyBudget[]>('app_budgets', []);
@@ -83,7 +75,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setStaffs([]);
     setVisitors([]);
     setAllocations([]);
-    setFactors([]);
     setStoreWorkforcePlans([]);
     setStaffWorkforceDetails([]);
     setBudgets([]);
@@ -91,7 +82,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const exportData = () => {
     return JSON.stringify({
-      stores, staffs, visitors, allocations, factors, storeWorkforcePlans, staffWorkforceDetails, budgets
+      stores, staffs, visitors, allocations, storeWorkforcePlans, staffWorkforceDetails, budgets
     }, null, 2);
   };
 
@@ -102,7 +93,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       if (data.staffs) setStaffs(data.staffs);
       if (data.visitors) setVisitors(data.visitors);
       if (data.allocations) setAllocations(data.allocations);
-      if (data.factors) setFactors(data.factors);
       if (data.storeWorkforcePlans) setStoreWorkforcePlans(data.storeWorkforcePlans);
       if (data.staffWorkforceDetails) setStaffWorkforceDetails(data.staffWorkforceDetails);
       if (data.budgets) setBudgets(data.budgets);
@@ -120,7 +110,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         staffs, setStaffs,
         visitors, setVisitors,
         allocations, setAllocations,
-        factors, setFactors,
         storeWorkforcePlans, setStoreWorkforcePlans,
         staffWorkforceDetails, setStaffWorkforceDetails,
         budgets, setBudgets,
