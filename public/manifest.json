@@ -1,16 +1,16 @@
 {
-  "name": "人員配置計画アプリ",
-  "short_name": "人員配置",
-  "description": "AIと予算に基づく人員配置計画アプリケーション",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "short_name": "BTTF",
+  "name": "BTTF 管理システム",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
+      "type": "image/svg+xml",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#000000"
 }
