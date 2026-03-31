@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { getDaysInMonth } from '../utils/calculations';
 import { RotateCcw, Database, Trash2, GripVertical } from 'lucide-react';
@@ -305,17 +305,45 @@ const VisitorSettings = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
   const [visitorToDelete, setVisitorToDelete] = useState<string | null>(null);
+  const [isClearMonthModalOpen, setIsClearMonthModalOpen] = useState(false);
 
-  const storeVisitors = visitors.filter(v => v.storeId === selectedStore && v.date.startsWith(selectedMonth)).sort((a, b) => a.date.localeCompare(b.date));
+  const daysInMonth = getDaysInMonth(selectedMonth);
+  const allDays = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = String(i + 1).padStart(2, '0');
+    return `${selectedMonth}-${day}`;
+  });
 
-  const handleChange = (date: string, field: 'visitors' | 'isHoliday', value: number | boolean) => {
+  const storeVisitorsMap = useMemo(() => {
+    const map = new Map();
+    visitors.filter(v => v.storeId === selectedStore && v.date.startsWith(selectedMonth)).forEach(v => {
+      map.set(v.date, v);
+    });
+    return map;
+  }, [visitors, selectedStore, selectedMonth]);
+
+  const handleChange = (date: string, field: 'visitors' | 'isHoliday', value: number | boolean | null) => {
     setVisitors(prev => {
       const newVisitors = [...prev];
       const index = newVisitors.findIndex(v => v.storeId === selectedStore && v.date === date);
+      
+      if (field === 'visitors' && value === null) {
+        if (index >= 0) {
+          newVisitors.splice(index, 1);
+        }
+        return newVisitors;
+      }
+
       if (index >= 0) {
         newVisitors[index] = { ...newVisitors[index], [field]: value };
       } else {
-        newVisitors.push({ date, storeId: selectedStore, visitors: field === 'visitors' ? value as number : 0, isHoliday: field === 'isHoliday' ? value as boolean : false });
+        const d = new Date(date);
+        const isHolidayDefault = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+        newVisitors.push({ 
+          date, 
+          storeId: selectedStore, 
+          visitors: field === 'visitors' ? value as number : 0, 
+          isHoliday: field === 'isHoliday' ? value as boolean : isHolidayDefault 
+        });
       }
       return newVisitors;
     });
@@ -328,7 +356,6 @@ const VisitorSettings = () => {
     
     if (values.length === 0) return;
 
-    const daysInMonth = getDaysInMonth(selectedMonth);
     setVisitors(prev => {
       // Remove existing entries for this month/store
       const newVisitors = prev.filter(v => !(v.storeId === selectedStore && v.date.startsWith(selectedMonth)));
@@ -362,13 +389,25 @@ const VisitorSettings = () => {
     }
   };
 
+  const handleClearMonth = () => {
+    setIsClearMonthModalOpen(true);
+  };
+
+  const confirmClearMonth = () => {
+    setVisitors(prev => prev.filter(v => !(v.storeId === selectedStore && v.date.startsWith(selectedMonth))));
+    setIsClearMonthModalOpen(false);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex space-x-4">
+      <div className="flex space-x-4 items-center">
         <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)} className="border p-2 rounded">
           {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="border p-2 rounded" />
+        <button onClick={handleClearMonth} className="bg-red-50 text-red-600 px-4 py-2 rounded text-sm font-medium hover:bg-red-100 border border-red-200 transition-colors">
+          この月の客数を一括削除
+        </button>
       </div>
       
       <div className="bg-neutral-50 p-4 rounded-lg border border-neutral-200">
@@ -392,18 +431,42 @@ const VisitorSettings = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200">
-            {storeVisitors.map((v) => (
-              <tr key={v.date}>
-                <td className="p-3 font-mono text-sm">{v.date}</td>
-                <td className="p-3"><input type="number" value={v.visitors} onChange={e => handleChange(v.date, 'visitors', Number(e.target.value))} className="border p-1 rounded w-32" /></td>
-                <td className="p-3"><input type="checkbox" checked={v.isHoliday} onChange={e => handleChange(v.date, 'isHoliday', e.target.checked)} className="w-5 h-5" /></td>
-                <td className="p-3">
-                  <button onClick={() => handleDeleteVisitor(v.date)} className="text-red-500 hover:text-red-700 p-1">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {allDays.map((date) => {
+              const v = storeVisitorsMap.get(date);
+              const d = new Date(date);
+              const defaultIsHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+              const isHoliday = v ? v.isHoliday : defaultIsHoliday;
+              
+              return (
+                <tr key={date} className={isHoliday ? 'bg-red-50/30' : ''}>
+                  <td className="p-3 font-mono text-sm">{date}</td>
+                  <td className="p-3">
+                    <input 
+                      type="number" 
+                      value={v ? v.visitors : ''} 
+                      onChange={e => handleChange(date, 'visitors', e.target.value === '' ? null : Number(e.target.value))} 
+                      className="border p-1 rounded w-32" 
+                      placeholder="未入力"
+                    />
+                  </td>
+                  <td className="p-3">
+                    <input 
+                      type="checkbox" 
+                      checked={isHoliday} 
+                      onChange={e => handleChange(date, 'isHoliday', e.target.checked)} 
+                      className="w-5 h-5" 
+                    />
+                  </td>
+                  <td className="p-3">
+                    {v && (
+                      <button onClick={() => handleDeleteVisitor(date)} className="text-red-500 hover:text-red-700 p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -412,6 +475,12 @@ const VisitorSettings = () => {
         message="この日の客数データを削除してもよろしいですか？"
         onConfirm={confirmDeleteVisitor}
         onCancel={() => setVisitorToDelete(null)}
+      />
+      <ConfirmModal 
+        isOpen={isClearMonthModalOpen}
+        message={`${selectedMonth}の客数データをすべて削除してもよろしいですか？`}
+        onConfirm={confirmClearMonth}
+        onCancel={() => setIsClearMonthModalOpen(false)}
       />
     </div>
   );

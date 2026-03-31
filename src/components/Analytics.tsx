@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useAppContext } from '../context/AppContext';
 import { Filter, MapPin, Store, Calendar as CalendarIcon, TrendingUp, RotateCcw, Database } from 'lucide-react';
 import { InfoTooltip } from './InfoTooltip';
-import { calculatePredictions } from '../utils/calculations';
+import { calculatePredictions, isPublicHoliday } from '../utils/calculations';
 import { DataManagement } from './DataManagement';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -86,9 +86,21 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
 
     const getQuarter = (dateStr: string) => {
       const month = parseInt(dateStr.substring(5, 7), 10);
-      const year = dateStr.substring(0, 4);
-      const q = Math.ceil(month / 3);
-      return `${year} Q${q}`;
+      const year = parseInt(dateStr.substring(0, 4), 10);
+      let q = 0;
+      let fiscalYear = year;
+      if (month >= 7 && month <= 9) {
+        q = 1;
+      } else if (month >= 10 && month <= 12) {
+        q = 2;
+      } else if (month >= 1 && month <= 3) {
+        q = 3;
+        fiscalYear = year - 1;
+      } else if (month >= 4 && month <= 6) {
+        q = 4;
+        fiscalYear = year - 1;
+      }
+      return `${fiscalYear} Q${q}`;
     };
 
     const quarterlyData: Record<string, { total: number, count: number }> = {};
@@ -141,22 +153,83 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
   const dataDaily = useMemo(() => {
     if (timeframe !== 'daily') return [];
 
-    const dailyData: Record<string, { total: number, count: number }> = {};
+    const [yearStr, monthStr] = currentYearMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10) - 1; // 0-indexed
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const dailyData: Record<string, { total: number, count: number, avg3MonthsTotal: number, avg3MonthsCount: number }> = {};
+    
+    // Initialize all days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = String(d).padStart(2, '0');
+      dailyData[dayStr] = { total: 0, count: 0, avg3MonthsTotal: 0, avg3MonthsCount: 0 };
+      
+      const targetDate = new Date(year, month, d);
+      const targetIsHoliday = isPublicHoliday(targetDate);
+      const targetDow = targetIsHoliday ? 0 : targetDate.getDay();
+      
+      // Calculate N-th occurrence of this "effective" day of week in the current month
+      let targetNth = 0;
+      for (let cd = 1; cd <= d; cd++) {
+        const cdDate = new Date(year, month, cd);
+        const cdIsHoliday = isPublicHoliday(cdDate);
+        const cdDow = cdIsHoliday ? 0 : cdDate.getDay();
+        if (cdDow === targetDow) {
+          targetNth++;
+        }
+      }
+      
+      // Look back 3 months
+      for (let m = 1; m <= 3; m++) {
+        const pastDate = new Date(year, month - m, 1);
+        const pastYear = pastDate.getFullYear();
+        const pastMonth = pastDate.getMonth();
+        const pastDaysInMonth = new Date(pastYear, pastMonth + 1, 0).getDate();
+        
+        let countDow = 0;
+        let matchedDateStr = null;
+        for (let pd = 1; pd <= pastDaysInMonth; pd++) {
+          const pdDate = new Date(pastYear, pastMonth, pd);
+          const pdIsHoliday = isPublicHoliday(pdDate);
+          const pdDow = pdIsHoliday ? 0 : pdDate.getDay();
+          
+          if (pdDow === targetDow) {
+            countDow++;
+            if (countDow === targetNth) {
+              matchedDateStr = `${pastYear}-${String(pastMonth + 1).padStart(2, '0')}-${String(pd).padStart(2, '0')}`;
+              break;
+            }
+          }
+        }
+        
+        if (matchedDateStr) {
+          const pastVisitors = relevantVisitors.filter(v => v.date === matchedDateStr);
+          if (pastVisitors.length > 0) {
+            const pastTotal = pastVisitors.reduce((sum, v) => sum + v.visitors, 0);
+            dailyData[dayStr].avg3MonthsTotal += pastTotal;
+            dailyData[dayStr].avg3MonthsCount += pastVisitors.length;
+          }
+        }
+      }
+    }
     
     relevantVisitors
       .filter(v => v.date.startsWith(currentYearMonth))
       .forEach(v => {
         const day = v.date.substring(8, 10);
-        if (!dailyData[day]) dailyData[day] = { total: 0, count: 0 };
-        dailyData[day].total += v.visitors;
-        dailyData[day].count += 1;
+        if (dailyData[day]) {
+          dailyData[day].total += v.visitors;
+          dailyData[day].count += 1;
+        }
       });
 
     return Object.entries(dailyData)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([day, data]) => ({
         name: `${day}日`,
-        avgDaily: Math.round(data.total / (data.count || 1))
+        avgDaily: data.count > 0 ? Math.round(data.total / data.count) : null,
+        avg3Months: data.avg3MonthsCount > 0 ? Math.round(data.avg3MonthsTotal / data.avg3MonthsCount) : null
       }));
   }, [relevantVisitors, timeframe, currentYearMonth]);
 
@@ -263,7 +336,8 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
               <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} />
               <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-              <Line type="stepAfter" dataKey="avgDaily" name="日別客数" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b', strokeWidth: 0 }} activeDot={{ r: 6 }} />
+              <Line type="stepAfter" dataKey="avgDaily" name="日別客数" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b', strokeWidth: 0 }} activeDot={{ r: 6 }} connectNulls />
+              <Line type="monotone" dataKey="avg3Months" name="直近3ヶ月平均(曜日合)" stroke="#9ca3af" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         );
@@ -286,7 +360,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
 
   const getGraphTitle = () => {
     let target = '全店舗ブロック';
-    if (viewMode === 'area' && selectedArea !== 'all') target = `${selectedArea}エリア`;
+    if (viewMode === 'area' && selectedArea !== 'all') target = selectedArea.endsWith('エリア') ? selectedArea : `${selectedArea}エリア`;
     if (viewMode === 'store' && selectedStore !== 'all') target = stores.find(s => s.id === selectedStore)?.name || '';
 
     switch (timeframe) {
@@ -409,6 +483,13 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
                     <span className="cursor-help">平均客数</span>
                   </InfoTooltip>
                 </th>
+                {timeframe === 'daily' && (
+                  <th className="p-3 font-medium text-right">
+                    <InfoTooltip content="直近3ヶ月の同じ曜日の平均客数" position="bottom">
+                      <span className="cursor-help">直近3ヶ月平均</span>
+                    </InfoTooltip>
+                  </th>
+                )}
                 {timeframe !== 'weekly' && timeframe !== 'daily' && (
                   <th className="p-3 font-medium text-right">
                     <InfoTooltip content="期間内の累計客数" position="bottom">
@@ -429,8 +510,13 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
                   <td className="p-3 text-right text-neutral-600">
                     {timeframe === 'future' 
                       ? `${(row as any).predicted.toLocaleString()} (予測)` 
-                      : `${row.avgDaily.toLocaleString()}`}
+                      : row.avgDaily !== null ? `${row.avgDaily.toLocaleString()}` : '-'}
                   </td>
+                  {timeframe === 'daily' && (
+                    <td className="p-3 text-right text-neutral-600">
+                      {'avg3Months' in row && row.avg3Months !== null ? row.avg3Months.toLocaleString() : '-'}
+                    </td>
+                  )}
                   {timeframe !== 'weekly' && timeframe !== 'daily' && (
                     <td className="p-3 text-right text-neutral-600">
                       {timeframe === 'future' 

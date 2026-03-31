@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { getDayCountsInMonth, calculatePredictions, calculateRequiredStaff, calculateMonthsOpen, calculateBudgetBasedPredictions, calculateIndividualCapacity } from '../utils/calculations';
+import { getDayCountsInMonth, calculatePredictions, calculateRequiredStaff, calculateMonthsOpen, calculateBudgetBasedPredictions, calculateIndividualCapacity, isPublicHoliday } from '../utils/calculations';
 import { Users, Calendar, Calculator, CheckCircle, Plus, Trash2, TrendingUp, Copy, RotateCcw, Database } from 'lucide-react';
 import { StoreWorkforcePlan, StaffWorkforceDetail } from '../types';
 import { InfoTooltip as Tooltip } from './InfoTooltip';
@@ -193,12 +193,10 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
   let totalRecommendedManDaysAll = 0;
   let totalPlannedManDaysAll = 0;
   let totalShortageAll = 0;
-  let totalCapacityAll = 0;
-  let totalPredictedVisitorsAll = 0;
-  let totalCapacityShortageAll = 0;
+  let totalPredictedWAll = 0;
+  let totalPredictedHAll = 0;
   let totalDaysOffAll = 0;
   let totalBaseManDaysAll = 0;
-  let totalCapacitySumAll = 0;
 
   const round = (val: number) => Math.round(val * 10) / 10;
 
@@ -227,20 +225,6 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
 
     const weekdayDays = dayCounts.monday + dayCounts.tuesday + dayCounts.wednesday + dayCounts.thursday + dayCounts.friday;
     const weekendDays = dayCounts.saturday + dayCounts.sundayHoliday;
-
-    const staffsInStoreWithCap = staffsInStore.map(s => {
-      const capW = calculateIndividualCapacity(store.hoursW, s.skillLevel);
-      const capH = calculateIndividualCapacity(store.hoursH, s.skillLevel);
-      const avgCap = round(((capW * weekdayDays) + (capH * weekendDays)) / (dayCounts.total || 1));
-      return { ...s, capW, capH, avgCap };
-    });
-
-    const totalCapacity = round(staffsInStoreWithCap.reduce((sum, s) => {
-      const detail = storeStaffDetails.find(d => d.staffId === s.id);
-      const adj = detail?.daysOffAdjustment || 0;
-      return sum + ((dayCounts.total - s.daysOff - adj) * s.avgCap);
-    }, 0));
-    const totalCapacitySum = round(staffsInStoreWithCap.reduce((sum, s) => sum + s.avgCap, 0));
 
     const monthsOpen = calculateMonthsOpen(store.openDate, currentYearMonth);
     const preds = calculatePredictions(visitors, store.id, currentYearMonth);
@@ -332,13 +316,8 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     const totalPlanned = round(monMD + tueMD + wedMD + thuMD + friMD + satMD + sunMD);
 
     const shortage = round(netManDays - totalPlanned);
-    const capacityShortage = round(totalCapacity - activeMonthlyPredictedVisitors);
 
-    const avgDailyCapacity = round(totalCapacity / (dayCounts.total || 1));
     const avgDailyVisitors = round(activeMonthlyPredictedVisitors / (dayCounts.total || 1));
-    
-    const avgCapW = staffCount > 0 ? staffsInStoreWithCap.reduce((sum, s) => sum + s.capW, 0) / staffCount : 0;
-    const avgCapH = staffCount > 0 ? staffsInStoreWithCap.reduce((sum, s) => sum + s.capH, 0) / staffCount : 0;
 
     const getAvgVisitorsForDow = (dow: number) => {
       const dowPreds = (preds.preds || []).filter(p => new Date(p.date).getDay() === dow);
@@ -356,14 +335,56 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       sat: getAvgVisitorsForDow(6)
     };
 
+    const [yearStr, monthStr] = currentYearMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10) - 1;
+
+    const getAvg3MonthsForDow = (dow: number) => {
+      let total = 0;
+      let count = 0;
+      
+      for (let m = 1; m <= 3; m++) {
+        const pastDate = new Date(year, month - m, 1);
+        const pastYear = pastDate.getFullYear();
+        const pastMonth = pastDate.getMonth();
+        const pastDaysInMonth = new Date(pastYear, pastMonth + 1, 0).getDate();
+        
+        for (let pd = 1; pd <= pastDaysInMonth; pd++) {
+          const pdDate = new Date(pastYear, pastMonth, pd);
+          const pdIsHoliday = isPublicHoliday(pdDate);
+          const pdDow = pdIsHoliday ? 0 : pdDate.getDay();
+          
+          if (pdDow === dow) {
+            const dateStr = `${pastYear}-${String(pastMonth + 1).padStart(2, '0')}-${String(pd).padStart(2, '0')}`;
+            const v = visitors.find(v => v.storeId === store.id && v.date === dateStr);
+            if (v) {
+              total += v.visitors;
+              count++;
+            }
+          }
+        }
+      }
+      return count > 0 ? Math.round(total / count) : 0;
+    };
+
+    const avg3MonthsVisitors = {
+      sun: getAvg3MonthsForDow(0),
+      mon: getAvg3MonthsForDow(1),
+      tue: getAvg3MonthsForDow(2),
+      wed: getAvg3MonthsForDow(3),
+      thu: getAvg3MonthsForDow(4),
+      fri: getAvg3MonthsForDow(5),
+      sat: getAvg3MonthsForDow(6)
+    };
+
     const plannedPower = {
-      mon: round(plan.mondayCount * avgCapW),
-      tue: round(plan.tuesdayCount * avgCapW),
-      wed: round(plan.wednesdayCount * avgCapW),
-      thu: round(plan.thursdayCount * avgCapW),
-      fri: round(plan.fridayCount * avgCapW),
-      sat: round(plan.saturdayCount * avgCapH),
-      sun: round(plan.sundayHolidayCount * avgCapH)
+      mon: 0,
+      tue: 0,
+      wed: 0,
+      thu: 0,
+      fri: 0,
+      sat: 0,
+      sun: 0
     };
 
     totalStaffCount += staffCount;
@@ -371,12 +392,10 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     totalRecommendedManDaysAll += activeRecommendedManDays;
     totalPlannedManDaysAll += totalPlanned;
     totalShortageAll += (shortage + partTimeTotal);
-    totalCapacityAll += totalCapacity;
-    totalPredictedVisitorsAll += activeMonthlyPredictedVisitors;
-    totalCapacityShortageAll += capacityShortage;
+    totalPredictedWAll += activePredictedW;
+    totalPredictedHAll += activePredictedH;
     totalDaysOffAll += totalDaysOff;
     totalBaseManDaysAll += (totalManDays - totalDaysOff);
-    totalCapacitySumAll += avgDailyCapacity;
 
     return {
       store,
@@ -385,12 +404,9 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       totalManDays,
       totalDaysOff,
       netManDays,
-      totalCapacity,
-      totalCapacitySum,
       recommendedManDays: activeRecommendedManDays,
       shortage,
       monthlyPredictedVisitors: activeMonthlyPredictedVisitors,
-      capacityShortage,
       plan,
       monMD, tueMD, wedMD, thuMD, friMD, satMD, sunMD, totalPlanned,
       preds,
@@ -411,10 +427,12 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
       totalSupportDays,
       aiRecs,
       activeRecs,
-      avgDailyCapacity,
       avgDailyVisitors,
       plannedPower,
-      avgVisitors
+      avgVisitors,
+      avg3MonthsVisitors,
+      activePredictedW,
+      activePredictedH
     };
   });
 
@@ -430,7 +448,6 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     budget: storeRows.reduce((sum, r) => sum + r.budgetMonthlyPredictedVisitors, 0),
     netManDays: round(storeRows.reduce((sum, r) => sum + r.netManDays, 0)),
     recommendedManDays: round(storeRows.reduce((sum, r) => sum + r.recommendedManDays, 0)),
-    totalCapacity: round(storeRows.reduce((sum, r) => sum + r.totalCapacity, 0)),
     predictedVisitors: storeRows.reduce((sum, r) => sum + r.monthlyPredictedVisitors, 0),
     monMD: round(storeRows.reduce((sum, r) => sum + r.monMD, 0)),
     tueMD: round(storeRows.reduce((sum, r) => sum + r.tueMD, 0)),
@@ -449,7 +466,6 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     partTimeTotal: round(storeRows.reduce((sum, r) => sum + r.partTimeTotal, 0)),
     totalBaseManDays: round(totalBaseManDaysAll),
     totalDaysOff: totalDaysOffAll,
-    totalCapacitySum: round(totalCapacitySumAll),
   };
 
   return (
@@ -535,32 +551,21 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
           <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg"><Calculator size={24} /></div>
           <div>
-            <p className="text-sm text-neutral-500 font-medium">平均供給力 / 予測客数 (1日当り)</p>
-            <Tooltip content={
-              <div className="space-y-1">
-                <p>供給：スタッフの公休を考慮した1日あたりの平均供給力</p>
-                <p>予測：1日あたりの予測客数（AIまたは予算）</p>
-                <p className="text-[10px] opacity-70 border-t border-white/20 pt-1">計算: Σ(月間供給力) / 月間日数</p>
-              </div>
-            } position="bottom">
+            <p className="text-sm text-neutral-500 font-medium">平均予測客数 (平日)</p>
+            <Tooltip content="全店の平日1日あたりの平均的な予測客数の総計です。" position="bottom">
               <p className="text-2xl font-bold text-neutral-900 cursor-help">
-                {Math.round(totalCapacityAll / (dayCounts.total || 1))} <span className="text-sm font-normal text-neutral-500">/ {Math.round(totalPredictedVisitorsAll / (dayCounts.total || 1))}</span>
+                {Math.round(totalPredictedWAll)}
               </p>
             </Tooltip>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex items-center space-x-4">
-          <div className={`p-3 rounded-lg ${totalCapacityShortageAll < 0 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}><TrendingUp size={24} /></div>
+          <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg"><TrendingUp size={24} /></div>
           <div>
-            <p className="text-sm text-neutral-500 font-medium">平均供給力 過不足 (1日当り)</p>
-            <Tooltip content={
-              <div className="space-y-1">
-                <p>平均供給力 - 予測客数</p>
-                <p>1日あたりのサービス提供能力の余裕度です。</p>
-              </div>
-            } position="bottom">
-              <p className={`text-2xl font-bold cursor-help ${totalCapacityShortageAll < 0 ? 'text-red-600' : 'text-indigo-600'}`}>
-                {totalCapacityShortageAll > 0 ? `+${Math.round(totalCapacityShortageAll / (dayCounts.total || 1))}` : Math.round(totalCapacityShortageAll / (dayCounts.total || 1))}
+            <p className="text-sm text-neutral-500 font-medium">平均予測客数 (土日祝)</p>
+            <Tooltip content="全店の土日祝日1日あたりの平均的な予測客数の総計です。" position="bottom">
+              <p className="text-2xl font-bold text-neutral-900 cursor-help">
+                {Math.round(totalPredictedHAll)}
               </p>
             </Tooltip>
           </div>
@@ -608,13 +613,13 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                   </Tooltip>
                 </th>
                 <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
-                  <Tooltip content="平均供給力(1日)：スタッフの公休を考慮した、1日あたりの平均的なサービス提供能力（対応可能客数）です。算出式：月間合計供給力 ÷ 月間日数" position="bottom">
-                    <span className="cursor-help">平均供給力<br/>(1日)</span>
+                  <Tooltip content="平均予測客数(平日)：AI予測または予算から算出された、平日1日あたりの平均的な予測客数です。" position="bottom">
+                    <span className="cursor-help">平均予測客数<br/>(平日)</span>
                   </Tooltip>
                 </th>
                 <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center">
-                  <Tooltip content="平均予測客数(1日)：AI予測または予算から算出された、1日あたりの平均的な予測客数です。算出式：月間予測客数 ÷ 月間日数" position="bottom">
-                    <span className="cursor-help">平均予測客数<br/>(1日)</span>
+                  <Tooltip content="平均予測客数(土日祝)：AI予測または予算から算出された、土日祝日1日あたりの平均的な予測客数です。" position="bottom">
+                    <span className="cursor-help">平均予測客数<br/>(土日祝)</span>
                   </Tooltip>
                 </th>
                 <th rowSpan={2} className="p-1 border-r border-neutral-300 text-center min-w-[40px]">
@@ -770,13 +775,13 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                 </Tooltip>
                               </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
-                                <Tooltip content="スタッフの公休を考慮した、1日あたりの平均的なサービス提供能力です。">
-                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.avgDailyCapacity}</div>
+                                <Tooltip content="平日1日あたりの平均的な予測客数です。">
+                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.activePredictedW}</div>
                                 </Tooltip>
                               </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
-                                <Tooltip content="1日あたりの平均的な予測客数です。">
-                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.avgDailyVisitors}</div>
+                                <Tooltip content="土日祝日1日あたりの平均的な予測客数です。">
+                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.activePredictedH}</div>
                                 </Tooltip>
                               </td>
                               
@@ -785,16 +790,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(月曜): {row.aiRecs.mon} / 予算: {row.budgetRecommendedW}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.mon}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.mon}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.mon}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.mondayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'mondayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.mon}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.mon < row.avgVisitors.mon ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.mon}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.mon}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.mon}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -817,16 +822,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(火曜): {row.aiRecs.tue} / 予算: {row.budgetRecommendedW}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.tue}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.tue}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.tue}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.tuesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'tuesdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.tue}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.tue < row.avgVisitors.tue ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.tue}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.tue}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.tue}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -849,16 +854,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(水曜): {row.aiRecs.wed} / 予算: {row.budgetRecommendedW}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.wed}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.wed}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.wed}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.wednesdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'wednesdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.wed}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.wed < row.avgVisitors.wed ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.wed}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.wed}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.wed}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -881,16 +886,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(木曜): {row.aiRecs.thu} / 予算: {row.budgetRecommendedW}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.thu}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.thu}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.thu}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.thursdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'thursdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.thu}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.thu < row.avgVisitors.thu ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.thu}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.thu}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.thu}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -913,16 +918,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(金曜): {row.aiRecs.fri} / 予算: {row.budgetRecommendedW}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.fri}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.fri}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.fri}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.fridayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'fridayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.fri}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.fri < row.avgVisitors.fri ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.fri}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.fri}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.fri}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -945,16 +950,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(土曜): {row.aiRecs.sat} / 予算: {row.budgetRecommendedH}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.sat}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.sat}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.sat}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.saturdayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'saturdayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.sat}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.sat < row.avgVisitors.sat ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.sat}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.sat}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.sat}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -977,16 +982,16 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <div className="space-y-1">
                                     <p>AI予測または予算から算出された推奨人員枠です。</p>
                                     <p className="text-[10px] opacity-80">AI予測(日曜): {row.aiRecs.sun} / 予算: {row.budgetRecommendedH}</p>
-                                    <p className="text-[10px] text-blue-500">平均予測客数: {row.avgVisitors.sun}</p>
+                                    <p className="text-[10px] text-blue-500">直近3ヶ月の平均客数: {row.avg3MonthsVisitors.sun}</p>
                                   </div>
                                 }>
                                   <div className="text-[10px] text-neutral-400 text-center mb-1 cursor-help">推:{row.activeRecs.sun}</div>
                                 </Tooltip>
                                 <input type="number" min="0" value={row.plan.sundayHolidayCount || ''} onChange={e => handleStorePlanChange(row.store.id, 'sundayHolidayCount', Number(e.target.value))} className="w-10 p-1 border rounded text-center mx-auto block text-xs" />
                                 <div className="mt-1 flex flex-col items-center space-y-1">
-                                  <Tooltip content={`計画供給能力: ${row.plannedPower.sun}`}>
-                                    <div className={`text-[9px] font-bold px-1 rounded ${row.plannedPower.sun < row.avgVisitors.sun ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
-                                      力:{row.plannedPower.sun}
+                                  <Tooltip content={`直近3ヶ月の平均客数: ${row.avg3MonthsVisitors.sun}`}>
+                                    <div className={`text-[9px] font-bold px-1 rounded text-neutral-600 bg-neutral-100`}>
+                                      客:{row.avg3MonthsVisitors.sun}
                                     </div>
                                   </Tooltip>
                                   <Tooltip content="休業日調整（マイナス入力）">
@@ -1055,11 +1060,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                                   <span className="cursor-help">{dayCounts.total - staff.daysOff}</span>
                                 </Tooltip>
                               </td>
-                              <td className="p-1 border-r border-neutral-300 text-center text-neutral-600">
-                                <Tooltip content={`平日能力: ${staff.capW} / 休日能力: ${staff.capH}`}>
-                                  <span className="cursor-help">{staff.avgCap}</span>
-                                </Tooltip>
-                              </td>
+                              <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
                               <td className="p-1 border-r border-neutral-300"></td>
@@ -1220,10 +1221,10 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                   </span>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  {round(rows.reduce((sum, r) => sum + r.avgDailyCapacity, 0))}
+                  {round(rows.reduce((sum, r) => sum + r.activePredictedW, 0))}
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  {round(rows.reduce((sum, r) => sum + r.avgDailyVisitors, 0))}
+                  {round(rows.reduce((sum, r) => sum + r.activePredictedH, 0))}
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(rows.reduce((sum, r) => sum + r.monMD, 0))}</td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(rows.reduce((sum, r) => sum + r.tueMD, 0))}</td>
@@ -1287,13 +1288,13 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                   </Tooltip>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  <Tooltip content="全スタッフの公休を考慮した、1日あたりの平均的なサービス提供能力の総計です。">
-                    <span className="cursor-help">{round(totalCapacitySumAll)}</span>
+                  <Tooltip content="全店の平日1日あたりの平均的な予測客数の総計です。">
+                    <span className="cursor-help">{round(totalPredictedWAll)}</span>
                   </Tooltip>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  <Tooltip content="全店の1日あたりの平均的な予測客数の総計です。">
-                    <span className="cursor-help">{round(totalPredictedVisitorsAll / (dayCounts.total || 1))}</span>
+                  <Tooltip content="全店の土日祝日1日あたりの平均的な予測客数の総計です。">
+                    <span className="cursor-help">{round(totalPredictedHAll)}</span>
                   </Tooltip>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(grandTotals.monMD)}</td>
