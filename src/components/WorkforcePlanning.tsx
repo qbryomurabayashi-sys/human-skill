@@ -81,10 +81,7 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
     setAllocations(prev => {
       return prev.map(a => {
         if (a.storeId === storeId && a.yearMonth === currentYearMonth) {
-          const newSlots = [...a.slots];
-          const index = newSlots.indexOf(staffId);
-          if (index > -1) newSlots.splice(index, 1);
-          return { ...a, slots: newSlots };
+          return { ...a, slots: a.slots.filter(s => s !== staffId) };
         }
         return a;
       });

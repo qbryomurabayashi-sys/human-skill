@@ -63,7 +63,7 @@ export const Settings: React.FC = () => {
 };
 
 const StoreSettings = () => {
-  const { stores, setStores } = useAppContext();
+  const { stores, setStores, setAllocations, setStoreWorkforcePlans, setVisitors } = useAppContext();
   const [storeToDelete, setStoreToDelete] = useState<string | null>(null);
 
   const handleChange = (index: number, field: keyof typeof stores[0], value: string | number) => {
@@ -73,8 +73,9 @@ const StoreSettings = () => {
   };
 
   const handleAddStore = () => {
-    const newId = `S${String(stores.length + 1).padStart(2, '0')}`;
-    setStores([...stores, { id: newId, name: '新店舗', hoursW: 10, hoursH: 10, seats: 10, openDate: new Date().toISOString().split('T')[0], area: '未設定', order: stores.length }]);
+    const newId = `S_${Date.now().toString(36)}`;
+    const maxOrder = stores.length > 0 ? Math.max(...stores.map(s => s.order ?? 0)) : -1;
+    setStores([...stores, { id: newId, name: '新店舗', hoursW: 10, hoursH: 10, seats: 10, openDate: new Date().toISOString().split('T')[0], area: '未設定', order: maxOrder + 1 }]);
   };
 
   const handleDeleteStore = (id: string) => {
@@ -84,6 +85,9 @@ const StoreSettings = () => {
   const confirmDeleteStore = () => {
     if (storeToDelete) {
       setStores(stores.filter(s => s.id !== storeToDelete));
+      setAllocations(prev => prev.filter(a => a.storeId !== storeToDelete));
+      setStoreWorkforcePlans(prev => prev.filter(p => p.storeId !== storeToDelete));
+      setVisitors(prev => prev.filter(v => v.storeId !== storeToDelete));
       setStoreToDelete(null);
     }
   };
@@ -172,7 +176,7 @@ const StoreSettings = () => {
 };
 
 const StaffSettings = () => {
-  const { staffs, setStaffs } = useAppContext();
+  const { staffs, setStaffs, setAllocations, setStaffWorkforceDetails } = useAppContext();
   const [staffToDelete, setStaffToDelete] = useState<string | null>(null);
 
   const handleChange = (index: number, field: keyof typeof staffs[0], value: string | number) => {
@@ -182,8 +186,9 @@ const StaffSettings = () => {
   };
 
   const handleAddStaff = () => {
-    const newId = `ST${String(staffs.length + 1).padStart(2, '0')}`;
-    setStaffs([...staffs, { id: newId, name: '新スタッフ', capacity: 20, daysOff: 8 }]);
+    const newId = `ST_${Date.now().toString(36)}`;
+    const maxOrder = staffs.length > 0 ? Math.max(...staffs.map(s => s.order ?? 0)) : -1;
+    setStaffs([...staffs, { id: newId, name: '新スタッフ', capacity: 20, daysOff: 8, skillLevel: 'standard', order: maxOrder + 1 }]);
   };
 
   const handleDeleteStaff = (id: string) => {
@@ -193,6 +198,11 @@ const StaffSettings = () => {
   const confirmDeleteStaff = () => {
     if (staffToDelete) {
       setStaffs(staffs.filter(s => s.id !== staffToDelete));
+      setAllocations(prev => prev.map(a => ({
+        ...a,
+        slots: a.slots.filter(s => s !== staffToDelete)
+      })));
+      setStaffWorkforceDetails(prev => prev.filter(d => d.staffId !== staffToDelete));
       setStaffToDelete(null);
     }
   };
