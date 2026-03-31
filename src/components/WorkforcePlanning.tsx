@@ -776,12 +776,12 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                               </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
                                 <Tooltip content="平日1日あたりの平均的な予測客数です。">
-                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.activePredictedW}</div>
+                                  <div className="text-xs text-blue-600 font-bold cursor-help">{Math.round(row.activePredictedW)}</div>
                                 </Tooltip>
                               </td>
                               <td className="p-1 border-r border-neutral-300 bg-neutral-50 text-center align-middle">
                                 <Tooltip content="土日祝日1日あたりの平均的な予測客数です。">
-                                  <div className="text-xs text-blue-600 font-bold cursor-help">{row.activePredictedH}</div>
+                                  <div className="text-xs text-blue-600 font-bold cursor-help">{Math.round(row.activePredictedH)}</div>
                                 </Tooltip>
                               </td>
                               
@@ -1221,10 +1221,10 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                   </span>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  {round(rows.reduce((sum, r) => sum + r.activePredictedW, 0))}
+                  {Math.round(rows.reduce((sum, r) => sum + r.activePredictedW, 0))}
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
-                  {round(rows.reduce((sum, r) => sum + r.activePredictedH, 0))}
+                  {Math.round(rows.reduce((sum, r) => sum + r.activePredictedH, 0))}
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(rows.reduce((sum, r) => sum + r.monMD, 0))}</td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(rows.reduce((sum, r) => sum + r.tueMD, 0))}</td>
@@ -1289,12 +1289,12 @@ export const WorkforcePlanning: React.FC<WorkforcePlanningProps> = ({ currentYea
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
                   <Tooltip content="全店の平日1日あたりの平均的な予測客数の総計です。">
-                    <span className="cursor-help">{round(totalPredictedWAll)}</span>
+                    <span className="cursor-help">{Math.round(totalPredictedWAll)}</span>
                   </Tooltip>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-xs text-blue-600 font-bold">
                   <Tooltip content="全店の土日祝日1日あたりの平均的な予測客数の総計です。">
-                    <span className="cursor-help">{round(totalPredictedHAll)}</span>
+                    <span className="cursor-help">{Math.round(totalPredictedHAll)}</span>
                   </Tooltip>
                 </td>
                 <td className="p-2 border-r border-neutral-300 text-center text-blue-600">{round(grandTotals.monMD)}</td>
