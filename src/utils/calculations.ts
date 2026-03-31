@@ -1,4 +1,28 @@
 import { StoreMaster, DailyVisitor } from '../types';
+import * as JapaneseHolidays from 'japanese-holidays';
+
+export const isPublicHoliday = (date: Date): boolean => {
+  try {
+    const dynamicHolidaysStr = localStorage.getItem('app_dynamic_holidays');
+    if (dynamicHolidaysStr) {
+      const dynamicHolidays = JSON.parse(dynamicHolidaysStr);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+      
+      // If the API explicitly lists it as a holiday
+      if (dynamicHolidays[dateString]) {
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse dynamic holidays', e);
+  }
+
+  // Fallback to algorithmic calculation
+  return !!JapaneseHolidays.isHoliday(date);
+};
 
 export const getDaysInMonth = (yearMonth: string) => {
   const [year, month] = yearMonth.split('-').map(Number);
@@ -21,13 +45,15 @@ export const getDayCountsInMonth = (yearMonth: string) => {
   for (let i = 1; i <= daysInMonth; i++) {
     const d = new Date(year, month - 1, i);
     const dayOfWeek = d.getDay();
-    if (dayOfWeek === 1) monday++;
+    const isHoliday = isPublicHoliday(d);
+
+    if (dayOfWeek === 0 || isHoliday) sundayHoliday++;
+    else if (dayOfWeek === 1) monday++;
     else if (dayOfWeek === 2) tuesday++;
     else if (dayOfWeek === 3) wednesday++;
     else if (dayOfWeek === 4) thursday++;
     else if (dayOfWeek === 5) friday++;
     else if (dayOfWeek === 6) saturday++;
-    else if (dayOfWeek === 0) sundayHoliday++;
   }
 
   return { monday, tuesday, wednesday, thursday, friday, saturday, sundayHoliday, total: daysInMonth };
@@ -201,7 +227,7 @@ export const calculatePredictions = (
     const dateStr = `${targetYearMonth}-${String(d).padStart(2, '0')}`;
     const date = new Date(dateStr);
     const dow = date.getDay();
-    const isHoliday = dow === 0 || dow === 6; // Simple holiday check for now
+    const isHoliday = dow === 0 || dow === 6 || isPublicHoliday(date); // Include public holidays
     const base = isHoliday ? predictedH : predictedW;
     const dowIndex = dowIndices[dow] || 1;
     preds.push({

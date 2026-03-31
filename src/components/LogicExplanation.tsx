@@ -7,6 +7,17 @@ export const LogicExplanation: React.FC = () => {
         <h1 className="text-2xl font-bold text-neutral-900 mb-6 border-b pb-4">計算ロジック仕様書</h1>
         
         <div className="space-y-10">
+          {/* 0. 休日・祝日の判定 */}
+          <section>
+            <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">
+              <span className="bg-neutral-900 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">0</span>
+              休日・祝日の判定
+            </h2>
+            <p className="text-sm text-neutral-600 mb-4 leading-relaxed">
+              システムでは、土曜日・日曜日および「国民の祝日」を休日として扱います。祝日は日本の法律に基づき自動的に計算・適用されます。
+            </p>
+          </section>
+
           {/* 1. TREND予測 */}
           <section>
             <h2 className="text-lg font-bold text-neutral-800 mb-3 flex items-center">

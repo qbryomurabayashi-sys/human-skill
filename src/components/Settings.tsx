@@ -6,6 +6,7 @@ import { DataManagement } from './DataManagement';
 import { ConfirmModal } from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { StoreMaster } from '../types';
+import { isPublicHoliday } from '../utils/calculations';
 
 export const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'stores' | 'staffs' | 'visitors'>('stores');
@@ -326,7 +327,7 @@ const VisitorSettings = () => {
         const day = String(i + 1).padStart(2, '0');
         const dateStr = `${selectedMonth}-${day}`;
         const d = new Date(dateStr);
-        const isHoliday = d.getDay() === 0 || d.getDay() === 6;
+        const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
         newVisitors.push({
           date: dateStr,
           storeId: selectedStore,

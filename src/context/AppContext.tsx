@@ -1,6 +1,7 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { StoreMaster, StaffMaster, DailyVisitor, Allocation, StoreWorkforcePlan, StaffWorkforceDetail, MonthlyBudget } from '../types';
+import { isPublicHoliday } from '../utils/calculations';
 
 interface AppContextType {
   stores: StoreMaster[];
@@ -46,7 +47,7 @@ const generateMockVisitors = () => {
   for (let i = 0; i < 365; i++) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const isHoliday = d.getDay() === 0 || d.getDay() === 6;
+    const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
     initialStores.forEach(store => {
       visitors.push({
         date: dateStr,
@@ -69,6 +70,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [storeWorkforcePlans, setStoreWorkforcePlans] = useLocalStorage<StoreWorkforcePlan[]>('app_store_workforce_plans', []);
   const [staffWorkforceDetails, setStaffWorkforceDetails] = useLocalStorage<StaffWorkforceDetail[]>('app_staff_workforce_details', []);
   const [budgets, setBudgets] = useLocalStorage<MonthlyBudget[]>('app_budgets', []);
+
+  useEffect(() => {
+    // Fetch latest holidays in the background to keep them up to date
+    fetch('https://holidays-jp.github.io/api/v1/date.json')
+      .then(res => res.json())
+      .then(data => {
+        localStorage.setItem('app_dynamic_holidays', JSON.stringify(data));
+      })
+      .catch(err => console.error('Failed to fetch dynamic holidays:', err));
+  }, []);
 
   const resetAllData = () => {
     setStores([]);
