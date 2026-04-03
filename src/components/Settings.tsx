@@ -40,10 +40,10 @@ export const Settings: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
-        <div className="flex border-b border-neutral-200 bg-neutral-50">
-          <button onClick={() => setActiveTab('stores')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'stores' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>店舗マスタ</button>
-          <button onClick={() => setActiveTab('staffs')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'staffs' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>スタッフマスタ</button>
-          <button onClick={() => setActiveTab('visitors')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider ${activeTab === 'visitors' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>日別客数カレンダー</button>
+        <div className="flex border-b border-neutral-200 bg-neutral-50 overflow-x-auto">
+          <button onClick={() => setActiveTab('stores')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'stores' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>店舗マスタ</button>
+          <button onClick={() => setActiveTab('staffs')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'staffs' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>スタッフマスタ</button>
+          <button onClick={() => setActiveTab('visitors')} className={`px-6 py-4 text-sm font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'visitors' ? 'border-b-2 border-red-600 text-red-600' : 'text-neutral-500 hover:text-neutral-900'}`}>日別客数カレンダー</button>
         </div>
 
         <div className="p-6 overflow-x-auto">

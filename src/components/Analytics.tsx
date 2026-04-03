@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, ComposedChart, Area, AreaChart } from 'recharts';
 import { useAppContext } from '../context/AppContext';
-import { Filter, MapPin, Store, Calendar as CalendarIcon, TrendingUp, RotateCcw, Database } from 'lucide-react';
+import { Filter, MapPin, Store, Calendar as CalendarIcon, TrendingUp, RotateCcw, Database, BarChart2, Zap } from 'lucide-react';
 import { InfoTooltip } from './InfoTooltip';
 import { calculatePredictions, isPublicHoliday } from '../utils/calculations';
 import { DataManagement } from './DataManagement';
 import { ConfirmModal } from './ConfirmModal';
+import { ForecastView } from './ForecastView';
 
 interface AnalyticsProps {
   currentYearMonth: string;
@@ -13,9 +14,11 @@ interface AnalyticsProps {
 
 type ViewMode = 'all' | 'area' | 'store';
 type Timeframe = '12months' | 'quarterly' | 'weekly' | 'daily' | 'future';
+type AnalyticsTab = 'basic' | 'advanced';
 
 export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
   const { stores, visitors, budgets, resetAllData } = useAppContext();
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>('basic');
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
@@ -380,7 +383,6 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
           <p className="text-neutral-600">店舗、エリア、全店舗ブロックごとの客数データを様々な期間で分析します。</p>
         </div>
         <div className="flex items-center space-x-4">
-
           <button 
             onClick={handleReset}
             className="flex items-center space-x-2 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"
@@ -391,154 +393,187 @@ export const Analytics: React.FC<AnalyticsProps> = ({ currentYearMonth }) => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex flex-wrap gap-4 items-center">
-        <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
-          <Filter size={18} className="text-neutral-500" />
-          <select 
-            value={viewMode} 
-            onChange={(e) => {
-              setViewMode(e.target.value as ViewMode);
-              setSelectedArea('all');
-              setSelectedStore('all');
-            }}
-            className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
-          >
-            <option value="all">全店舗ブロック</option>
-            <option value="area">エリア別</option>
-            <option value="store">店舗別</option>
-          </select>
-        </div>
+      {/* Tab Switcher */}
+      <div className="flex space-x-1 bg-neutral-200 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab('basic')}
+          className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === 'basic' 
+              ? 'bg-white text-neutral-900 shadow-sm' 
+              : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          <BarChart2 size={18} />
+          <span>基本分析</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('advanced')}
+          className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
+            activeTab === 'advanced' 
+              ? 'bg-white text-red-600 shadow-sm' 
+              : 'text-neutral-500 hover:text-neutral-700'
+          }`}
+        >
+          <Zap size={18} className={activeTab === 'advanced' ? 'text-red-500' : ''} />
+          <span>高度な予測エンジン</span>
+        </button>
+      </div>
 
-        {viewMode === 'area' && (
-          <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
-            <MapPin size={18} className="text-neutral-500" />
-            <select 
-              value={selectedArea} 
-              onChange={(e) => setSelectedArea(e.target.value)}
-              className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
-            >
-              <option value="all">すべてのエリア</option>
-              {areas.map(area => (
-                <option key={area} value={area}>{area}</option>
-              ))}
-            </select>
+      {activeTab === 'basic' ? (
+        <>
+          {/* Filters */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 flex flex-wrap gap-4 items-center">
+            <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
+              <Filter size={18} className="text-neutral-500" />
+              <select 
+                value={viewMode} 
+                onChange={(e) => {
+                  setViewMode(e.target.value as ViewMode);
+                  setSelectedArea('all');
+                  setSelectedStore('all');
+                }}
+                className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
+              >
+                <option value="all">全店舗ブロック</option>
+                <option value="area">エリア別</option>
+                <option value="store">店舗別</option>
+              </select>
+            </div>
+
+            {viewMode === 'area' && (
+              <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
+                <MapPin size={18} className="text-neutral-500" />
+                <select 
+                  value={selectedArea} 
+                  onChange={(e) => setSelectedArea(e.target.value)}
+                  className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
+                >
+                  <option value="all">すべてのエリア</option>
+                  {areas.map(area => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {viewMode === 'store' && (
+              <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
+                <Store size={18} className="text-neutral-500" />
+                <select 
+                  value={selectedStore} 
+                  onChange={(e) => setSelectedStore(e.target.value)}
+                  className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
+                >
+                  <option value="all">すべての店舗</option>
+                  {sortedStores.map(store => (
+                    <option key={store.id} value={store.id}>{store.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="h-8 w-px bg-neutral-300 mx-2 hidden md:block"></div>
+
+            <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
+              <CalendarIcon size={18} className="text-neutral-500" />
+              <select 
+                value={timeframe} 
+                onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+                className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
+              >
+                <option value="12months">過去12ヶ月</option>
+                <option value="quarterly">四半期別</option>
+                <option value="weekly">曜日別</option>
+                <option value="daily">暦日別 ({currentYearMonth})</option>
+                <option value="future">未来予測 (6ヶ月)</option>
+              </select>
+            </div>
           </div>
-        )}
 
-        {viewMode === 'store' && (
-          <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
-            <Store size={18} className="text-neutral-500" />
-            <select 
-              value={selectedStore} 
-              onChange={(e) => setSelectedStore(e.target.value)}
-              className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
-            >
-              <option value="all">すべての店舗</option>
-              {sortedStores.map(store => (
-                <option key={store.id} value={store.id}>{store.name}</option>
-              ))}
-            </select>
+          {/* Graph Area */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
+            <h3 className="text-lg font-bold text-neutral-800 mb-6">{getGraphTitle()}</h3>
+            <div className="h-[500px] w-full">
+              {renderGraph()}
+            </div>
           </div>
-        )}
+          
+          {/* Data Summary Table */}
+          <div className="bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
+            <div className="p-4 border-b border-neutral-200 bg-neutral-50">
+              <h3 className="font-bold text-neutral-800">データ詳細</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="bg-white border-b border-neutral-200 text-neutral-500">
+                    <th className="p-3 font-medium">期間 / 項目</th>
+                    <th className="p-3 font-medium text-right">
+                      <InfoTooltip content="期間内の総客数 / 期間内の日数" position="bottom">
+                        <span className="cursor-help">平均客数</span>
+                      </InfoTooltip>
+                    </th>
+                    {timeframe === 'daily' && (
+                      <th className="p-3 font-medium text-right">
+                        <InfoTooltip content="直近3ヶ月の同じ曜日の平均客数" position="bottom">
+                          <span className="cursor-help">直近3ヶ月平均</span>
+                        </InfoTooltip>
+                      </th>
+                    )}
+                    {timeframe !== 'weekly' && timeframe !== 'daily' && (
+                      <th className="p-3 font-medium text-right">
+                        <InfoTooltip content="期間内の累計客数" position="bottom">
+                          <span className="cursor-help">総客数</span>
+                        </InfoTooltip>
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(timeframe === '12months' ? data12Months :
+                    timeframe === 'quarterly' ? dataQuarterly :
+                    timeframe === 'weekly' ? dataWeekly :
+                    timeframe === 'daily' ? dataDaily :
+                    dataFuture).map((row, i) => (
+                    <tr key={i} className="border-b border-neutral-100 hover:bg-neutral-50">
+                      <td className="p-3 font-medium text-neutral-800">{row.name}</td>
+                      <td className="p-3 text-right text-neutral-600">
+                        {timeframe === 'future' 
+                          ? `${(row as any).predicted.toLocaleString()} (予測)` 
+                          : row.avgDaily !== null ? `${row.avgDaily.toLocaleString()}` : '-'}
+                      </td>
+                      {timeframe === 'daily' && (
+                        <td className="p-3 text-right text-neutral-600">
+                          {'avg3Months' in row && row.avg3Months !== null ? row.avg3Months.toLocaleString() : '-'}
+                        </td>
+                      )}
+                      {timeframe !== 'weekly' && timeframe !== 'daily' && (
+                        <td className="p-3 text-right text-neutral-600">
+                          {timeframe === 'future' 
+                            ? `${(row as any).budget.toLocaleString()} (予算)` 
+                            : 'total' in row ? row.total.toLocaleString() : '-'}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {(timeframe === '12months' && data12Months.length === 0) ||
+                   (timeframe === 'quarterly' && dataQuarterly.length === 0) ||
+                   (timeframe === 'weekly' && dataWeekly.length === 0) ||
+                   (timeframe === 'daily' && dataDaily.length === 0) ||
+                   (timeframe === 'future' && dataFuture.length === 0) ? (
+                    <tr>
+                      <td colSpan={3} className="p-8 text-center text-neutral-500">データがありません</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <ForecastView />
+      )}
 
-        <div className="h-8 w-px bg-neutral-300 mx-2 hidden md:block"></div>
-
-        <div className="flex items-center space-x-2 bg-neutral-50 p-2 rounded-lg border border-neutral-200">
-          <CalendarIcon size={18} className="text-neutral-500" />
-          <select 
-            value={timeframe} 
-            onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-            className="bg-transparent border-none text-sm font-medium text-neutral-700 focus:ring-0 cursor-pointer"
-          >
-            <option value="12months">過去12ヶ月</option>
-            <option value="quarterly">四半期別</option>
-            <option value="weekly">曜日別</option>
-            <option value="daily">暦日別 ({currentYearMonth})</option>
-            <option value="future">未来予測 (6ヶ月)</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Graph Area */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-neutral-200">
-        <h3 className="text-lg font-bold text-neutral-800 mb-6">{getGraphTitle()}</h3>
-        <div className="h-[500px] w-full">
-          {renderGraph()}
-        </div>
-      </div>
-      
-      {/* Data Summary Table (Optional, for better visibility) */}
-      <div className="bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
-        <div className="p-4 border-b border-neutral-200 bg-neutral-50">
-          <h3 className="font-bold text-neutral-800">データ詳細</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="bg-white border-b border-neutral-200 text-neutral-500">
-                <th className="p-3 font-medium">期間 / 項目</th>
-                <th className="p-3 font-medium text-right">
-                  <InfoTooltip content="期間内の総客数 / 期間内の日数" position="bottom">
-                    <span className="cursor-help">平均客数</span>
-                  </InfoTooltip>
-                </th>
-                {timeframe === 'daily' && (
-                  <th className="p-3 font-medium text-right">
-                    <InfoTooltip content="直近3ヶ月の同じ曜日の平均客数" position="bottom">
-                      <span className="cursor-help">直近3ヶ月平均</span>
-                    </InfoTooltip>
-                  </th>
-                )}
-                {timeframe !== 'weekly' && timeframe !== 'daily' && (
-                  <th className="p-3 font-medium text-right">
-                    <InfoTooltip content="期間内の累計客数" position="bottom">
-                      <span className="cursor-help">総客数</span>
-                    </InfoTooltip>
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {(timeframe === '12months' ? data12Months :
-                timeframe === 'quarterly' ? dataQuarterly :
-                timeframe === 'weekly' ? dataWeekly :
-                timeframe === 'daily' ? dataDaily :
-                dataFuture).map((row, i) => (
-                <tr key={i} className="border-b border-neutral-100 hover:bg-neutral-50">
-                  <td className="p-3 font-medium text-neutral-800">{row.name}</td>
-                  <td className="p-3 text-right text-neutral-600">
-                    {timeframe === 'future' 
-                      ? `${(row as any).predicted.toLocaleString()} (予測)` 
-                      : row.avgDaily !== null ? `${row.avgDaily.toLocaleString()}` : '-'}
-                  </td>
-                  {timeframe === 'daily' && (
-                    <td className="p-3 text-right text-neutral-600">
-                      {'avg3Months' in row && row.avg3Months !== null ? row.avg3Months.toLocaleString() : '-'}
-                    </td>
-                  )}
-                  {timeframe !== 'weekly' && timeframe !== 'daily' && (
-                    <td className="p-3 text-right text-neutral-600">
-                      {timeframe === 'future' 
-                        ? `${(row as any).budget.toLocaleString()} (予算)` 
-                        : 'total' in row ? row.total.toLocaleString() : '-'}
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {(timeframe === '12months' && data12Months.length === 0) ||
-               (timeframe === 'quarterly' && dataQuarterly.length === 0) ||
-               (timeframe === 'weekly' && dataWeekly.length === 0) ||
-               (timeframe === 'daily' && dataDaily.length === 0) ||
-               (timeframe === 'future' && dataFuture.length === 0) ? (
-                <tr>
-                  <td colSpan={3} className="p-8 text-center text-neutral-500">データがありません</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
       {isDataModalOpen && <DataManagement onClose={() => setIsDataModalOpen(false)} />}
       <ConfirmModal 
         isOpen={isConfirmModalOpen}
