@@ -294,3 +294,11 @@ export const calculateRequiredStaff = (
 
   return { requiredW, requiredH };
 };
+
+export const calculateStoreMaxCapacity = (store: StoreMaster, isHoliday: boolean) => {
+  const hours = isHoliday ? store.hoursH : store.hoursW;
+  // 1時間あたりの回転率を2.0（30分滞在想定）として計算
+  // 席数 * 営業時間 * 回転率
+  const turnoverRate = 2.0;
+  return Math.round(store.seats * hours * turnoverRate);
+};

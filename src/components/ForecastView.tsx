@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { 
   runForecastEngine, 
@@ -21,15 +21,19 @@ import {
   Area,
   BarChart,
   Bar,
-  Cell
+  Cell,
+  ReferenceLine
 } from 'recharts';
-import { AlertTriangle, TrendingUp, Info, CloudRain, Calendar, Users, BarChart2, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Info, CloudRain, Calendar, Users, BarChart2, ChevronDown, ChevronUp, Zap, ShieldAlert, RefreshCw } from 'lucide-react';
+import { isPublicHoliday } from '../utils/calculations';
 
 export const ForecastView: React.FC = () => {
   const { visitors, stores } = useAppContext();
-  const [selectedStore, setSelectedStore] = useState(stores[0]?.id || '');
+  const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || '');
   const [forecastMonths, setForecastMonths] = useState(6);
   
+  const selectedStore = useMemo(() => stores.find(s => s.id === selectedStoreId), [stores, selectedStoreId]);
+
   // External Parameters State
   const [externalParams, setExternalParams] = useState<ExternalParams>({
     avgTemp: 22,
@@ -43,12 +47,68 @@ export const ForecastView: React.FC = () => {
   });
 
   const [showExternalParams, setShowExternalParams] = useState(false);
+  const [isAutoUpdating, setIsAutoUpdating] = useState(false);
+
+  // Automate calendar parameters for the next month
+  const autoUpdateCalendarParams = () => {
+    setIsAutoUpdating(true);
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const year = nextMonth.getFullYear();
+    const month = nextMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    let holidays = 0;
+    let weekends = 0;
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d);
+      const isSunOrSat = date.getDay() === 0 || date.getDay() === 6;
+      if (isSunOrSat) weekends++;
+      if (isPublicHoliday(date)) holidays++;
+    }
+    
+    const ratio = Math.round((weekends / daysInMonth) * 100);
+    
+    setExternalParams(prev => ({
+      ...prev,
+      holidayCount: holidays,
+      weekendRatio: ratio
+    }));
+    
+    // Simulate weather fetch (or use real API if available)
+    // For now, we'll just set some "seasonal" defaults
+    const seasonalTemp = [5, 6, 12, 18, 22, 26, 30, 31, 25, 19, 13, 8][month];
+    const seasonalRain = [5, 6, 9, 10, 11, 14, 12, 10, 12, 10, 7, 5][month];
+    
+    setExternalParams(prev => ({
+      ...prev,
+      avgTemp: seasonalTemp,
+      rainDays: seasonalRain
+    }));
+
+    setTimeout(() => setIsAutoUpdating(false), 600);
+  };
+
+  useEffect(() => {
+    autoUpdateCalendarParams();
+  }, [selectedStoreId]);
+
+  // Capacity calculation
+  const monthlyCapacity = useMemo(() => {
+    if (!selectedStore) return 0;
+    // 1時間あたりの回転率を2.0（30分滞在想定）として計算
+    // 席数 * 平均営業時間 * 回転率 * 30日
+    const avgHours = (selectedStore.hoursW + selectedStore.hoursH) / 2;
+    const turnoverRate = 1.8; // 保守的に1.8回転/時
+    return Math.round(selectedStore.seats * avgHours * turnoverRate * 30.4);
+  }, [selectedStore]);
 
   // Aggregate historical data by month
   const historicalData = useMemo(() => {
-    if (!selectedStore) return [];
+    if (!selectedStoreId) return [];
     
-    const storeVisitors = visitors.filter(v => v.storeId === selectedStore);
+    const storeVisitors = visitors.filter(v => v.storeId === selectedStoreId);
     const monthlyMap = new Map<string, number>();
     
     storeVisitors.forEach(v => {
@@ -59,7 +119,7 @@ export const ForecastView: React.FC = () => {
     return Array.from(monthlyMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([month, total]) => ({ month, total }));
-  }, [visitors, selectedStore]);
+  }, [visitors, selectedStoreId]);
 
   const rawSalesArray = useMemo(() => historicalData.map(d => d.total), [historicalData]);
 
@@ -69,7 +129,7 @@ export const ForecastView: React.FC = () => {
     return runForecastEngine(rawSalesArray, forecastMonths);
   }, [rawSalesArray, forecastMonths]);
 
-  // Apply External Multiplier
+  // Apply External Multiplier & Capacity Cap
   const adjustedForecast = useMemo(() => {
     if (!forecastResult) return null;
     const multiplier = buildExternalMultiplier(externalParams);
@@ -92,7 +152,15 @@ export const ForecastView: React.FC = () => {
       type: 'history'
     }));
     
-    const lastMonth = historicalData[historicalData.length - 1]?.month || new Date().toISOString().slice(0, 7);
+    const lastMonthEntry = historicalData[historicalData.length - 1];
+    if (lastMonthEntry) {
+      // Connect the lines by adding forecast key to the last historical point
+      data[data.length - 1].forecast = lastMonthEntry.total;
+      data[data.length - 1].upper = lastMonthEntry.total;
+      data[data.length - 1].lower = lastMonthEntry.total;
+    }
+
+    const lastMonth = lastMonthEntry?.month || new Date().toISOString().slice(0, 7);
     const [year, month] = lastMonth.split('-').map(Number);
     
     adjustedForecast.ensemble.forEach((val, i) => {
@@ -109,6 +177,12 @@ export const ForecastView: React.FC = () => {
     
     return data;
   }, [historicalData, forecastResult, adjustedForecast]);
+
+  // Check if forecast exceeds capacity
+  const capacityWarning = useMemo(() => {
+    if (!adjustedForecast || monthlyCapacity === 0) return false;
+    return adjustedForecast.ensemble.some(v => v > monthlyCapacity);
+  }, [adjustedForecast, monthlyCapacity]);
 
   // Explanation Data
   const explanation = useMemo(() => {
@@ -143,8 +217,8 @@ export const ForecastView: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <select 
-            value={selectedStore} 
-            onChange={e => setSelectedStore(e.target.value)}
+            value={selectedStoreId} 
+            onChange={e => setSelectedStoreId(e.target.value)}
             className="border p-2 rounded bg-white shadow-sm focus:ring-2 focus:ring-red-500 outline-none font-bold"
           >
             {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -159,6 +233,16 @@ export const ForecastView: React.FC = () => {
               {[3, 6, 12, 18, 24].map(m => <option key={m} value={m}>{m}ヶ月</option>)}
             </select>
           </div>
+          <button 
+            onClick={autoUpdateCalendarParams}
+            className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              isAutoUpdating ? 'bg-neutral-100 text-neutral-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+            }`}
+            disabled={isAutoUpdating}
+          >
+            <RefreshCw size={14} className={isAutoUpdating ? 'animate-spin' : ''} />
+            <span>カレンダー自動取得</span>
+          </button>
         </div>
 
         {forecastResult && (
@@ -179,11 +263,19 @@ export const ForecastView: React.FC = () => {
       {/* Main Forecast Chart */}
       <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-neutral-800 flex items-center space-x-2">
-            <TrendingUp className="w-5 h-5 text-red-500" />
-            <span>需要予測トレンド</span>
-          </h3>
-          <div className="flex items-center space-x-4 text-xs">
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-neutral-800 flex items-center space-x-2">
+              <TrendingUp className="w-5 h-5 text-red-500" />
+              <span>需要予測トレンド</span>
+            </h3>
+            {capacityWarning && (
+              <div className="flex items-center space-x-1 text-xs font-bold text-red-500">
+                <ShieldAlert size={14} />
+                <span>警告: キャパシティ超過の月があります</span>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
             <div className="flex items-center space-x-1">
               <div className="w-3 h-3 bg-neutral-400 rounded-full"></div>
               <span>実績</span>
@@ -195,6 +287,10 @@ export const ForecastView: React.FC = () => {
             <div className="flex items-center space-x-1">
               <div className="w-3 h-3 bg-red-100 rounded-full border border-red-200"></div>
               <span>80%信頼区間</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-px border-t border-dashed border-neutral-400"></div>
+              <span>物理キャパシティ</span>
             </div>
           </div>
         </div>
@@ -220,6 +316,12 @@ export const ForecastView: React.FC = () => {
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                 formatter={(value: number) => [`${value.toLocaleString()}人`, '']}
               />
+              <ReferenceLine 
+                y={monthlyCapacity} 
+                stroke="#999" 
+                strokeDasharray="5 5" 
+                label={{ position: 'right', value: 'Capacity', fill: '#999', fontSize: 10 }} 
+              />
               <Area 
                 type="monotone" 
                 dataKey="actual" 
@@ -228,21 +330,18 @@ export const ForecastView: React.FC = () => {
                 strokeWidth={2} 
                 dot={{ r: 4, fill: '#555' }}
                 activeDot={{ r: 6 }}
-                connectNulls
               />
               <Area 
                 type="monotone" 
                 dataKey="lower" 
                 stroke="transparent" 
                 fill="#fee2e2" 
-                connectNulls
               />
               <Area 
                 type="monotone" 
                 dataKey="upper" 
                 stroke="transparent" 
                 fill="#fee2e2" 
-                connectNulls
               />
               <Line 
                 type="monotone" 
@@ -252,7 +351,6 @@ export const ForecastView: React.FC = () => {
                 strokeDasharray="5 5"
                 dot={{ r: 4, fill: '#ef4444' }}
                 activeDot={{ r: 6 }}
-                connectNulls
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -268,6 +366,20 @@ export const ForecastView: React.FC = () => {
               <span>アクション推奨</span>
             </h3>
             <div className="space-y-4">
+              {capacityWarning && (
+                <div className="p-4 rounded-lg border bg-red-50 border-red-100 flex items-start space-x-4">
+                  <div className="mt-1 p-1.5 rounded-full bg-red-200 text-red-700">
+                    <ShieldAlert size={16} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-red-900">キャパシティ限界の警告</h4>
+                    <p className="text-sm text-red-700 mt-1 leading-relaxed">
+                      予測客数が店舗の物理的なキャパシティ（月間約{monthlyCapacity.toLocaleString()}人）を超えています。
+                      席の回転率向上、営業時間の延長、または近隣店舗への誘導を検討してください。
+                    </p>
+                  </div>
+                </div>
+              )}
               {forecastResult?.actions.map((action, i) => (
                 <div key={i} className={`p-4 rounded-lg border flex items-start space-x-4 ${
                   action.type === 'A' ? 'bg-blue-50 border-blue-100' :
