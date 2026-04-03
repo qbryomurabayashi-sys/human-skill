@@ -42,67 +42,12 @@ export const ForecastView: React.FC = () => {
     weekendRatio: 40,
     newCompetitors: 0,
     reviewScore: 4.1,
-    cpiYoY: 2.5,
+    cpiYoY: 2.0,
     sentimentDI: 10,
   });
 
   const [showExternalParams, setShowExternalParams] = useState(false);
   const [isAutoUpdating, setIsAutoUpdating] = useState(false);
-
-  // Automate calendar parameters for the next month
-  const autoUpdateCalendarParams = () => {
-    setIsAutoUpdating(true);
-    const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const year = nextMonth.getFullYear();
-    const month = nextMonth.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    let holidays = 0;
-    let weekends = 0;
-    
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, month, d);
-      const isSunOrSat = date.getDay() === 0 || date.getDay() === 6;
-      if (isSunOrSat) weekends++;
-      if (isPublicHoliday(date)) holidays++;
-    }
-    
-    const ratio = Math.round((weekends / daysInMonth) * 100);
-    
-    setExternalParams(prev => ({
-      ...prev,
-      holidayCount: holidays,
-      weekendRatio: ratio
-    }));
-    
-    // Simulate weather fetch (or use real API if available)
-    // For now, we'll just set some "seasonal" defaults
-    const seasonalTemp = [5, 6, 12, 18, 22, 26, 30, 31, 25, 19, 13, 8][month];
-    const seasonalRain = [5, 6, 9, 10, 11, 14, 12, 10, 12, 10, 7, 5][month];
-    
-    setExternalParams(prev => ({
-      ...prev,
-      avgTemp: seasonalTemp,
-      rainDays: seasonalRain
-    }));
-
-    setTimeout(() => setIsAutoUpdating(false), 600);
-  };
-
-  useEffect(() => {
-    autoUpdateCalendarParams();
-  }, [selectedStoreId]);
-
-  // Capacity calculation
-  const monthlyCapacity = useMemo(() => {
-    if (!selectedStore) return 0;
-    // 1時間あたりの回転率を2.0（30分滞在想定）として計算
-    // 席数 * 平均営業時間 * 回転率 * 30日
-    const avgHours = (selectedStore.hoursW + selectedStore.hoursH) / 2;
-    const turnoverRate = 1.8; // 保守的に1.8回転/時
-    return Math.round(selectedStore.seats * avgHours * turnoverRate * 30.4);
-  }, [selectedStore]);
 
   // Aggregate historical data by month
   const historicalData = useMemo(() => {
@@ -123,11 +68,75 @@ export const ForecastView: React.FC = () => {
 
   const rawSalesArray = useMemo(() => historicalData.map(d => d.total), [historicalData]);
 
+  // Automate calendar parameters for the next month
+  const autoUpdateCalendarParams = () => {
+    if (historicalData.length === 0) return;
+    
+    setIsAutoUpdating(true);
+    
+    const lastMonthEntry = historicalData[historicalData.length - 1];
+    const parts = lastMonthEntry.month.split(/[-/]/);
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    
+    if (isNaN(year) || isNaN(month)) return;
+
+    // month is 1-12. new Date(year, month) is the month AFTER lastMonthEntry.
+    const nextMonth = new Date(year, month, 1);
+    const nextYear = nextMonth.getFullYear();
+    const nextMonthIdx = nextMonth.getMonth();
+    const daysInMonth = new Date(nextYear, nextMonthIdx + 1, 0).getDate();
+    
+    let holidays = 0;
+    let weekends = 0;
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(nextYear, nextMonthIdx, d);
+      const isSunOrSat = date.getDay() === 0 || date.getDay() === 6;
+      if (isSunOrSat) weekends++;
+      if (isPublicHoliday(date)) holidays++;
+    }
+    
+    const ratio = Math.round((weekends / daysInMonth) * 100);
+    
+    setExternalParams(prev => ({
+      ...prev,
+      holidayCount: holidays,
+      weekendRatio: ratio
+    }));
+    
+    // Seasonal defaults
+    const seasonalTemp = [5, 6, 12, 18, 22, 26, 30, 31, 25, 19, 13, 8][nextMonthIdx];
+    const seasonalRain = [5, 6, 9, 10, 11, 14, 12, 10, 12, 10, 7, 5][nextMonthIdx];
+    
+    setExternalParams(prev => ({
+      ...prev,
+      avgTemp: seasonalTemp,
+      rainDays: seasonalRain
+    }));
+
+    setTimeout(() => setIsAutoUpdating(false), 600);
+  };
+
+  useEffect(() => {
+    autoUpdateCalendarParams();
+  }, [selectedStoreId, historicalData]);
+
+  // Capacity calculation
+  const monthlyCapacity = useMemo(() => {
+    if (!selectedStore) return 0;
+    // 1時間あたりの回転率を2.0（30分滞在想定）として計算
+    // 席数 * 平均営業時間 * 回転率 * 30日
+    const avgHours = (selectedStore.hoursW + selectedStore.hoursH) / 2;
+    const turnoverRate = 1.8; // 保守的に1.8回転/時
+    return Math.round(selectedStore.seats * avgHours * turnoverRate * 30.4);
+  }, [selectedStore]);
+
   // Run Forecast Engine
   const forecastResult = useMemo(() => {
-    if (rawSalesArray.length === 0) return null;
-    return runForecastEngine(rawSalesArray, forecastMonths);
-  }, [rawSalesArray, forecastMonths]);
+    if (rawSalesArray.length === 0 || monthlyCapacity === 0) return null;
+    return runForecastEngine(rawSalesArray, monthlyCapacity, forecastMonths);
+  }, [rawSalesArray, forecastMonths, monthlyCapacity]);
 
   // Apply External Multiplier & Capacity Cap
   const adjustedForecast = useMemo(() => {
@@ -160,12 +169,22 @@ export const ForecastView: React.FC = () => {
       data[data.length - 1].lower = lastMonthEntry.total;
     }
 
-    const lastMonth = lastMonthEntry?.month || new Date().toISOString().slice(0, 7);
-    const [year, month] = lastMonth.split('-').map(Number);
+    const lastMonthStr = lastMonthEntry?.month || new Date().toISOString().slice(0, 7);
+    const parts = lastMonthStr.split(/[-/]/);
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
     
+    if (isNaN(year) || isNaN(month)) return [];
+
+    // month is 1-12. In Date constructor, month is 0-11.
+    // So new Date(year, month) is the month AFTER lastMonthStr.
     adjustedForecast.ensemble.forEach((val, i) => {
-      const d = new Date(year, month + i);
-      const name = d.toISOString().slice(0, 7);
+      const d = new Date(year, month + i, 1);
+      // Ensure we get YYYY-MM format correctly even for small years (though shouldn't happen)
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const name = `${y}-${m}`;
+      
       data.push({
         name,
         forecast: val,
@@ -519,6 +538,19 @@ export const ForecastView: React.FC = () => {
                   type="number" step="0.1" min="1" max="5"
                   value={externalParams.reviewScore}
                   onChange={e => setExternalParams({...externalParams, reviewScore: Number(e.target.value)})}
+                  className="w-full border p-2 rounded text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-neutral-500 flex items-center space-x-1">
+                  <TrendingUp size={12} />
+                  <span>物価上昇率 (CPI YoY %)</span>
+                </label>
+                <input 
+                  type="number" step="0.1"
+                  value={externalParams.cpiYoY}
+                  onChange={e => setExternalParams({...externalParams, cpiYoY: Number(e.target.value)})}
                   className="w-full border p-2 rounded text-sm"
                 />
               </div>

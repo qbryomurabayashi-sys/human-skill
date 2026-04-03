@@ -64,21 +64,24 @@ export function huberLoss(actual: number[], predicted: number[], delta: number) 
     return sum + (e <= delta ? 0.5 * e * e : delta * (e - 0.5 * delta));
   }, 0) / actual.length;
 }
-
 /**
  * Multi-start Nelder-Mead-like fitting
  * Finds optimal L, k, t0 values using 3 sets of initial parameters.
+ * Guided by physical capacity.
  */
-export function fitLogistic(data: number[], base: number) {
+export function fitLogistic(data: number[], base: number, maxCapacity: number) {
   const avg = data.reduce((a, b) => a + b, 0) / data.length;
   const delta = avg * 0.1;
   const predict = (L: number, k: number, t0: number) => data.map((_, i) => logistic(i, base, L, k, t0));
 
-  // 3 patterns of initial values (Standard / High L & Low k / Low L & High k)
+  // L (ceiling) should be around maxCapacity, but L in the formula is (Ceiling - Base)
+  const theoreticalL = Math.max(0, maxCapacity - base);
+
+  // 3 patterns of initial values (Standard / Conservative / Aggressive)
   const initSets = [
-    [avg * 1.5, 0.20, data.length / 2],
-    [avg * 2.0, 0.12, data.length * 0.7],
-    [avg * 1.1, 0.35, data.length * 0.3],
+    [theoreticalL, 0.20, data.length / 2],
+    [theoreticalL * 0.8, 0.10, data.length * 0.7],
+    [theoreticalL * 1.2, 0.30, data.length * 0.3],
   ];
 
   let best: { L: number; k: number; t0: number } | null = null;
@@ -92,7 +95,7 @@ export function fitLogistic(data: number[], base: number) {
     }
   });
 
-  return best || { L: avg, k: 0.2, t0: data.length / 2 };
+  return best || { L: theoreticalL, k: 0.2, t0: data.length / 2 };
 }
 
 // --- Step 3: Dynamic Seasonality ---
@@ -139,54 +142,6 @@ export function detectShift(data: number[]) {
     }
   }
   return best;
-}
-
-// --- Step 5: Ensemble Forecast and Confidence Intervals ---
-
-/**
- * Ensemble Forecast
- * Combines Logistic (0.8) and EMA (0.2) models with 80% confidence intervals.
- */
-export function buildEnsemble(
-  history: number[],
-  forecastMonths: number,
-  fit: { L: number; k: number; t0: number },
-  seas: number[],
-  base: number
-) {
-  const n = history.length;
-  const { L, k, t0 } = fit;
-
-  // EMA calculation
-  let emaVal = history[0] || 0;
-  history.forEach(v => { emaVal = 0.3 * v + 0.7 * emaVal; });
-  const emaSlope = n >= 2 ? history[n - 1] - history[n - 2] : 0;
-
-  // Nudge (Adaptive correction)
-  const trendPred = history.map((_, i) => logistic(i, base, L, k, t0));
-  const residuals = history.map((v, i) => v - trendPred[i]);
-  const recent = residuals.slice(-12);
-  const posCount = recent.filter(r => r > 0).length;
-  const consistencyRatio = recent.length > 0 ? posCount / recent.length : 0.5;
-  const avgResid = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
-  const isConsistent = consistencyRatio >= 0.66 || consistencyRatio <= 0.34;
-  const nudge = { value: Math.round(avgResid), consistent: isConsistent, ratio: consistencyRatio };
-
-  // Residual sigma (for confidence intervals)
-  const sigma = Math.sqrt(history.reduce((s, v, i) => s + (v - trendPred[i]) ** 2, 0) / n);
-
-  // Generate predictions
-  const ensemble: number[] = [], upper: number[] = [], lower: number[] = [];
-  for (let i = 0; i < forecastMonths; i++) {
-    const s = seas[(n + i) % 12];
-    const logPred = (logistic(n + i, base, L, k, t0) + nudge.value) * s;
-    const emaPred = (emaVal + (i + 1) * emaSlope) * s;
-    const ens = Math.round(0.8 * logPred + 0.2 * emaPred);
-    ensemble.push(ens);
-    upper.push(Math.round(ens + 1.28 * sigma)); // 80% confidence interval
-    lower.push(Math.round(ens - 1.28 * sigma));
-  }
-  return { ensemble, upper, lower, nudge, sigma };
 }
 
 // --- Step 6: Mode Selection ---
@@ -337,12 +292,64 @@ export function explainForecast(baseEnsemble: number, params: ExternalParams) {
   }));
 }
 
-// --- Main Entry Point ---
+/**
+ * Ensemble Forecast
+ * Combines Logistic (0.7) and EMA (0.3) models with 80% confidence intervals.
+ * Now considers physical capacity.
+ */
+export function buildEnsemble(
+  history: number[],
+  forecastMonths: number,
+  fit: { L: number; k: number; t0: number },
+  seas: number[],
+  base: number,
+  maxCapacity: number
+) {
+  const n = history.length;
+  const { L, k, t0 } = fit;
+
+  // EMA calculation
+  let emaVal = history[0] || 0;
+  history.forEach(v => { emaVal = 0.3 * v + 0.7 * emaVal; });
+  const emaSlope = n >= 2 ? (history[n - 1] - history[n - 2]) * 0.5 : 0; // Dampen slope
+
+  // Nudge (Adaptive correction)
+  const trendPred = history.map((_, i) => logistic(i, base, L, k, t0));
+  const residuals = history.map((v, i) => v - trendPred[i]);
+  const recent = residuals.slice(-6); // Shorter window for nudge
+  const posCount = recent.filter(r => r > 0).length;
+  const consistencyRatio = recent.length > 0 ? posCount / recent.length : 0.5;
+  const avgResid = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  const isConsistent = consistencyRatio >= 0.8 || consistencyRatio <= 0.2;
+  const nudge = { value: Math.round(avgResid * 0.5), consistent: isConsistent, ratio: consistencyRatio };
+
+  // Residual sigma (for confidence intervals)
+  const sigma = Math.sqrt(history.reduce((s, v, i) => s + (v - trendPred[i]) ** 2, 0) / n);
+
+  // Generate predictions
+  const ensemble: number[] = [], upper: number[] = [], lower: number[] = [];
+  for (let i = 0; i < forecastMonths; i++) {
+    const s = seas[(n + i) % 12];
+    const logPred = (logistic(n + i, base, L, k, t0) + nudge.value);
+    const emaPred = (emaVal + (i + 1) * emaSlope);
+    
+    // Weighted ensemble (0.7 Logistic + 0.3 EMA)
+    let ens = (0.7 * logPred + 0.3 * emaPred) * s;
+    
+    // Hard cap at physical capacity
+    ens = Math.min(maxCapacity, ens);
+    
+    ensemble.push(Math.round(ens));
+    upper.push(Math.round(Math.min(maxCapacity * 1.1, ens + 1.28 * sigma))); 
+    lower.push(Math.round(Math.max(0, ens - 1.28 * sigma)));
+  }
+  return { ensemble, upper, lower, nudge, sigma };
+}
 
 /**
  * Run Forecast Engine
  */
-export function runForecastEngine(rawSalesData: number[], forecastMonths = 6) {
+export function runForecastEngine(rawSalesData: number[], maxCapacity: number, forecastMonths = 6) {
   if (rawSalesData.length === 0) {
     return null;
   }
@@ -351,8 +358,8 @@ export function runForecastEngine(rawSalesData: number[], forecastMonths = 6) {
   const { filtered, flags } = hampelFilter(rawSalesData, 3, 3.0);
   const base = filtered[0] || 0;
 
-  // 2. Parameter Fitting
-  const fit = fitLogistic(filtered, base);
+  // 2. Parameter Fitting (Capacity-aware)
+  const fit = fitLogistic(filtered, base, maxCapacity);
 
   // 3. Seasonality Extraction
   const trendFn = (i: number) => logistic(i, base, fit.L, fit.k, fit.t0);
@@ -362,9 +369,9 @@ export function runForecastEngine(rawSalesData: number[], forecastMonths = 6) {
   const shift = detectShift(filtered);
   const mode = selectMode(filtered, shift);
 
-  // 5. Ensemble Forecast
+  // 5. Ensemble Forecast (Capacity-aware)
   const { ensemble, upper, lower, nudge, sigma } = buildEnsemble(
-    filtered, forecastMonths, fit, seas, base
+    filtered, forecastMonths, fit, seas, base, maxCapacity
   );
 
   // 6. Action Advisor
