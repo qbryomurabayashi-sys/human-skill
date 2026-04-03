@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { getDaysInMonth } from '../utils/calculations';
-import { RotateCcw, Database, Trash2, GripVertical } from 'lucide-react';
+import { getDaysInMonth, calculatePredictions, isPublicHoliday } from '../utils/calculations';
+import { RotateCcw, Database, Trash2, GripVertical, LayoutGrid, List, ChevronLeft, ChevronRight, BarChart3, FileUp, ClipboardPaste } from 'lucide-react';
 import { DataManagement } from './DataManagement';
 import { ConfirmModal } from './ConfirmModal';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { StoreMaster } from '../types';
-import { isPublicHoliday } from '../utils/calculations';
+import { StoreMaster, DailyVisitor } from '../types';
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 
 export const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'stores' | 'staffs' | 'visitors'>('stores');
@@ -303,23 +304,56 @@ const VisitorSettings = () => {
   const { visitors, setVisitors, stores } = useAppContext();
   const [selectedStore, setSelectedStore] = useState(stores[0]?.id || '');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
 
   const [visitorToDelete, setVisitorToDelete] = useState<string | null>(null);
   const [isClearMonthModalOpen, setIsClearMonthModalOpen] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const daysInMonth = getDaysInMonth(selectedMonth);
+  const firstDayOfMonth = new Date(`${selectedMonth}-01`).getDay(); // 0: Sun, 1: Mon, ...
+
   const allDays = Array.from({ length: daysInMonth }, (_, i) => {
     const day = String(i + 1).padStart(2, '0');
     return `${selectedMonth}-${day}`;
   });
 
   const storeVisitorsMap = useMemo(() => {
-    const map = new Map();
+    const map = new Map<string, DailyVisitor>();
     visitors.filter(v => v.storeId === selectedStore && v.date.startsWith(selectedMonth)).forEach(v => {
       map.set(v.date, v);
     });
     return map;
   }, [visitors, selectedStore, selectedMonth]);
+
+  const stats = useMemo(() => {
+    const currentMonthVisitors = Array.from(storeVisitorsMap.values()) as DailyVisitor[];
+    if (currentMonthVisitors.length === 0) return null;
+
+    let total = 0;
+    let weekdayTotal = 0;
+    let weekendTotal = 0;
+    let weekdayCount = 0;
+    let weekendCount = 0;
+
+    currentMonthVisitors.forEach(v => {
+      const visitors = v.visitors || 0;
+      total += visitors;
+      if (v.isHoliday) {
+        weekendTotal += visitors;
+        weekendCount++;
+      } else {
+        weekdayTotal += visitors;
+        weekdayCount++;
+      }
+    });
+
+    const avg = Math.round(total / currentMonthVisitors.length);
+    const weekdayAvg = weekdayCount > 0 ? Math.round(weekdayTotal / weekdayCount) : 0;
+    const weekendAvg = weekendCount > 0 ? Math.round(weekendTotal / weekendCount) : 0;
+
+    return { total, avg, weekdayAvg, weekendAvg, count: currentMonthVisitors.length };
+  }, [storeVisitorsMap]);
 
   const handleChange = (date: string, field: 'visitors' | 'isHoliday', value: number | boolean | null) => {
     setVisitors(prev => {
@@ -349,37 +383,219 @@ const VisitorSettings = () => {
     });
   };
 
+  const processImportedData = (data: any[]) => {
+    // data is expected to be an array of objects or arrays
+    // We try to find 'date' and 'visitors' or assume first two columns
+    const newEntries: DailyVisitor[] = [];
+    
+    data.forEach((row, index) => {
+      let dateStr = '';
+      let visitorsVal = 0;
+      let storeIdVal = selectedStore;
+
+      if (Array.isArray(row)) {
+        if (row.length >= 3) {
+          // Assume [Store, Date, Visitors]
+          const sVal = String(row[0]);
+          const foundStore = stores.find(s => s.id === sVal || s.name === sVal);
+          if (foundStore) storeIdVal = foundStore.id;
+          dateStr = String(row[1]);
+          visitorsVal = parseInt(String(row[2]), 10);
+        } else if (row.length === 2) {
+          // Assume [Date, Visitors]
+          dateStr = String(row[0]);
+          visitorsVal = parseInt(String(row[1]), 10);
+        } else if (row.length === 1) {
+          // Assume just visitors, starting from 1st of selected month
+          const day = String(index + 1).padStart(2, '0');
+          dateStr = `${selectedMonth}-${day}`;
+          visitorsVal = parseInt(String(row[0]), 10);
+        }
+      } else if (typeof row === 'object') {
+        // Try to find keys
+        const keys = Object.keys(row);
+        const dateKey = keys.find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('日付'));
+        const visitorKey = keys.find(k => k.toLowerCase().includes('visitor') || k.toLowerCase().includes('客数') || k.toLowerCase().includes('count'));
+        const storeKey = keys.find(k => k.toLowerCase().includes('store') || k.toLowerCase().includes('店舗') || k.toLowerCase().includes('店'));
+        
+        if (storeKey) {
+          const val = String(row[storeKey]);
+          const foundStore = stores.find(s => s.id === val || s.name === val);
+          if (foundStore) storeIdVal = foundStore.id;
+        }
+
+        if (dateKey && visitorKey) {
+          dateStr = String(row[dateKey]);
+          visitorsVal = parseInt(String(row[visitorKey]), 10);
+        } else if (visitorKey) {
+          const day = String(index + 1).padStart(2, '0');
+          dateStr = `${selectedMonth}-${day}`;
+          visitorsVal = parseInt(String(row[visitorKey]), 10);
+        }
+      }
+
+      // Validate date
+      if (dateStr && !isNaN(visitorsVal)) {
+        // Try to normalize date if it's just a day number
+        if (dateStr.length <= 2 && !isNaN(parseInt(dateStr, 10))) {
+          dateStr = `${selectedMonth}-${dateStr.padStart(2, '0')}`;
+        }
+        
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          const formattedDate = d.toISOString().split('T')[0];
+          const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+          newEntries.push({
+            date: formattedDate,
+            storeId: storeIdVal,
+            visitors: visitorsVal,
+            isHoliday
+          });
+        }
+      }
+    });
+
+    if (newEntries.length > 0) {
+      setVisitors(prev => {
+        const newVisitors = [...prev];
+        newEntries.forEach(entry => {
+          const idx = newVisitors.findIndex(v => v.storeId === entry.storeId && v.date === entry.date);
+          if (idx >= 0) {
+            newVisitors[idx] = entry;
+          } else {
+            newVisitors.push(entry);
+          }
+        });
+        return newVisitors;
+      });
+      setImportError(null);
+    } else {
+      setImportError('有効なデータが見つかりませんでした。形式を確認してください。');
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    const extension = file.name.split('.').pop()?.toLowerCase();
+
+    if (extension === 'csv') {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          processImportedData(results.data);
+        }
+      });
+    } else if (extension === 'xlsx' || extension === 'xls') {
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        processImportedData(data);
+      };
+      reader.readAsBinaryString(file);
+    }
+    // Reset input
+    e.target.value = '';
+  };
+
   const handlePasteVisitors = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text');
-    const values = text.split(/\t|,/).map(v => parseInt(v.trim(), 10)).filter(v => !isNaN(v));
     
-    if (values.length === 0) return;
+    // Try to parse as CSV-like structure from clipboard
+    const rows = text.trim().split(/\r?\n/);
+    const parsedData = rows.map(row => row.split(/\t/));
+    
+    processImportedData(parsedData);
+  };
 
+  const handlePasteOnInput = (date: string, e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    const values = text.split(/\t|,|\n|\s+/).map(v => parseInt(v.trim(), 10)).filter(v => !isNaN(v));
+    if (values.length <= 1) return;
+
+    e.preventDefault();
+    const startDate = new Date(date);
+    const startDay = startDate.getDate();
+    
     setVisitors(prev => {
-      // Remove existing entries for this month/store
-      const newVisitors = prev.filter(v => !(v.storeId === selectedStore && v.date.startsWith(selectedMonth)));
-      
-      for (let i = 0; i < Math.min(values.length, daysInMonth); i++) {
-        const day = String(i + 1).padStart(2, '0');
-        const dateStr = `${selectedMonth}-${day}`;
-        const d = new Date(dateStr);
-        const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
-        newVisitors.push({
-          date: dateStr,
-          storeId: selectedStore,
-          visitors: values[i],
-          isHoliday
-        });
+      const newVisitors = [...prev];
+      for (let i = 0; i < values.length; i++) {
+        const currentDay = startDay + i;
+        if (currentDay > daysInMonth) break;
+        
+        const currentDateStr = `${selectedMonth}-${String(currentDay).padStart(2, '0')}`;
+        const index = newVisitors.findIndex(v => v.storeId === selectedStore && v.date === currentDateStr);
+        
+        if (index >= 0) {
+          newVisitors[index] = { ...newVisitors[index], visitors: values[i] };
+        } else {
+          const d = new Date(currentDateStr);
+          const isHolidayDefault = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+          newVisitors.push({
+            date: currentDateStr,
+            storeId: selectedStore,
+            visitors: values[i],
+            isHoliday: isHolidayDefault
+          });
+        }
       }
       return newVisitors;
     });
-    
-    e.currentTarget.value = ''; // clear textarea after paste
   };
 
-  const handleDeleteVisitor = (date: string) => {
-    setVisitorToDelete(date);
+  const handleKeyDown = (date: string, e: React.KeyboardEvent<HTMLInputElement>) => {
+    const day = parseInt(date.split('-')[2], 10);
+    let nextDay = day;
+
+    if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      e.preventDefault();
+      nextDay = day + (viewMode === 'calendar' ? 7 : 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextDay = day - (viewMode === 'calendar' ? 7 : 1);
+    } else if (e.key === 'ArrowRight') {
+      nextDay = day + 1;
+    } else if (e.key === 'ArrowLeft') {
+      nextDay = day - 1;
+    } else {
+      return;
+    }
+
+    if (nextDay >= 1 && nextDay <= daysInMonth) {
+      const nextDateStr = `${selectedMonth}-${String(nextDay).padStart(2, '0')}`;
+      const nextInput = document.querySelector(`input[data-date="${nextDateStr}"]`) as HTMLInputElement;
+      if (nextInput) nextInput.focus();
+    }
+  };
+
+  const downloadTemplate = () => {
+    const data: any[] = [];
+    stores.forEach(store => {
+      allDays.forEach(date => {
+        data.push({
+          店舗名: store.name,
+          日付: date,
+          客数: ''
+        });
+      });
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, `visitor_template_all_stores_${selectedMonth}.xlsx`);
+  };
+
+  const changeMonth = (delta: number) => {
+    const d = new Date(`${selectedMonth}-01`);
+    d.setMonth(d.getMonth() + delta);
+    setSelectedMonth(d.toISOString().slice(0, 7));
   };
 
   const confirmDeleteVisitor = () => {
@@ -389,91 +605,259 @@ const VisitorSettings = () => {
     }
   };
 
-  const handleClearMonth = () => {
-    setIsClearMonthModalOpen(true);
-  };
-
   const confirmClearMonth = () => {
     setVisitors(prev => prev.filter(v => !(v.storeId === selectedStore && v.date.startsWith(selectedMonth))));
     setIsClearMonthModalOpen(false);
   };
 
+  const calendarGrid = useMemo(() => {
+    const grid = [];
+    // Padding
+    for (let i = 0; i < firstDayOfMonth; i++) {
+      grid.push(null);
+    }
+    // Days
+    allDays.forEach(date => grid.push(date));
+    return grid;
+  }, [allDays, firstDayOfMonth]);
+
   return (
     <div className="space-y-6">
-      <div className="flex space-x-4 items-center">
-        <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)} className="border p-2 rounded">
-          {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="border p-2 rounded" />
-        <button onClick={handleClearMonth} className="bg-red-50 text-red-600 px-4 py-2 rounded text-sm font-medium hover:bg-red-100 border border-red-200 transition-colors">
-          この月の客数を一括削除
-        </button>
+      <div className="flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)} className="border p-2 rounded bg-white shadow-sm focus:ring-2 focus:ring-red-500 outline-none">
+            {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <div className="flex items-center bg-white border rounded shadow-sm">
+            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-neutral-100 border-r"><ChevronLeft size={18} /></button>
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="p-2 border-none focus:ring-0 font-bold" />
+            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-neutral-100 border-l"><ChevronRight size={18} /></button>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2 bg-neutral-100 p-1 rounded-lg">
+          <button 
+            onClick={() => setViewMode('calendar')} 
+            className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-red-600' : 'text-neutral-500 hover:text-neutral-700'}`}
+          >
+            <LayoutGrid size={16} />
+            <span>カレンダー</span>
+          </button>
+          <button 
+            onClick={() => setViewMode('list')} 
+            className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-red-600' : 'text-neutral-500 hover:text-neutral-700'}`}
+          >
+            <List size={16} />
+            <span>リスト</span>
+          </button>
+        </div>
+
+        <div className="flex space-x-2">
+          <button onClick={() => setIsClearMonthModalOpen(true)} className="bg-white text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-50 border border-red-200 transition-colors">
+            一括削除
+          </button>
+        </div>
       </div>
       
-      <div className="bg-neutral-50 p-4 rounded-lg border border-neutral-200">
-        <label className="block text-sm font-bold text-neutral-700 mb-2">Excelから一括入力 (横列データをペースト)</label>
-        <textarea 
-          placeholder="Excelの横列データ（タブ区切り）をここにペーストしてください..." 
-          onPaste={handlePasteVisitors} 
-          className="w-full border border-neutral-300 p-3 rounded text-sm h-20 resize-none focus:ring-2 focus:ring-neutral-400 focus:border-transparent outline-none" 
-        />
-        <p className="text-xs text-neutral-500 mt-2">※ペーストすると、選択中の月の1日から順に客数が上書きされます。</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2 text-neutral-700">
+              <FileUp size={20} className="text-blue-500" />
+              <span className="font-bold">Excel / CSV ファイルをアップロード</span>
+            </div>
+          </div>
+          <div className="border-2 border-dashed border-neutral-200 rounded-lg p-8 text-center hover:border-blue-400 transition-colors relative group">
+            <input 
+              type="file" 
+              accept=".csv, .xlsx, .xls" 
+              onChange={handleFileUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            />
+            <div className="space-y-2">
+              <div className="mx-auto w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                <FileUp className="text-blue-500 w-6 h-6" />
+              </div>
+              <p className="text-sm font-medium text-neutral-600">クリックまたはドラッグ＆ドロップ</p>
+              <p className="text-xs text-neutral-400">.xlsx, .xls, .csv 形式に対応</p>
+            </div>
+          </div>
+          <button 
+            onClick={downloadTemplate}
+            className="mt-4 w-full text-xs text-blue-600 hover:underline flex items-center justify-center space-x-1"
+          >
+            <span>テンプレートをダウンロード (.xlsx)</span>
+          </button>
+          {importError && <p className="text-xs text-red-500 mt-2 font-bold">{importError}</p>}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm">
+          <div className="flex items-center space-x-2 mb-4 text-neutral-700">
+            <ClipboardPaste size={20} className="text-green-500" />
+            <span className="font-bold">Excelからコピー＆ペースト</span>
+          </div>
+          <textarea 
+            placeholder="Excelのデータをここに貼り付け..." 
+            onPaste={handlePasteVisitors} 
+            className="w-full border border-neutral-200 p-4 rounded-lg text-sm h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none bg-neutral-50 transition-all" 
+          />
+          <div className="mt-3 flex items-start space-x-2 text-[10px] text-neutral-400">
+            <div className="mt-0.5">•</div>
+            <p>「店舗名」「日付」「客数」の3列データ、または「日付」「客数」の2列データに対応しています。</p>
+          </div>
+          <div className="flex items-start space-x-2 text-[10px] text-neutral-400">
+            <div className="mt-0.5">•</div>
+            <p>日付が「2026-04-01」形式であれば、他の月や店舗のデータも一括で取り込めます。</p>
+          </div>
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-neutral-100 text-neutral-600 text-xs uppercase tracking-wider">
-              <th className="p-3">日付</th>
-              <th className="p-3">客数</th>
-              <th className="p-3">休日フラグ</th>
-              <th className="p-3 w-10"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-200">
-            {allDays.map((date) => {
+      {stats && (
+        <div className="bg-neutral-900 text-white p-4 rounded-xl shadow-lg flex flex-wrap gap-8 items-center">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-white/10 rounded-lg"><BarChart3 size={20} className="text-red-400" /></div>
+            <div>
+              <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">月間合計客数</p>
+              <p className="text-xl font-black">{stats.total.toLocaleString()}<span className="text-xs ml-1 font-normal">名</span></p>
+            </div>
+          </div>
+          <div className="h-8 w-px bg-white/10 hidden md:block"></div>
+          <div>
+            <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">日平均</p>
+            <p className="text-lg font-bold">{stats.avg.toLocaleString()}<span className="text-xs ml-1 font-normal">名</span></p>
+          </div>
+          <div>
+            <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider">平日平均</p>
+            <p className="text-lg font-bold text-neutral-300">{stats.weekdayAvg.toLocaleString()}<span className="text-xs ml-1 font-normal">名</span></p>
+          </div>
+          <div>
+            <p className="text-[10px] text-red-400 uppercase font-bold tracking-wider">休日平均</p>
+            <p className="text-lg font-bold text-red-400">{stats.weekendAvg.toLocaleString()}<span className="text-xs ml-1 font-normal">名</span></p>
+          </div>
+          <div className="ml-auto text-[10px] text-neutral-500 italic">
+            入力済み: {stats.count} / {daysInMonth} 日
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'calendar' ? (
+        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm">
+          <div className="grid grid-cols-7 gap-1 bg-neutral-100 p-1 rounded-lg">
+            {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => (
+              <div key={d} className={`p-2 text-center text-xs font-black ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-neutral-500'}`}>
+                {d}
+              </div>
+            ))}
+            {calendarGrid.map((date, i) => {
+              if (!date) return <div key={`empty-${i}`} className="bg-neutral-50/30 rounded-md h-24"></div>;
+              
               const v = storeVisitorsMap.get(date);
               const d = new Date(date);
               const defaultIsHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
               const isHoliday = v ? v.isHoliday : defaultIsHoliday;
-              
+              const dayNum = date.split('-')[2];
+
               return (
-                <tr key={date} className={isHoliday ? 'bg-red-50/30' : ''}>
-                  <td className="p-3 font-mono text-sm">{date}</td>
-                  <td className="p-3">
-                    <input 
-                      type="number" 
-                      value={v ? v.visitors : ''} 
-                      onChange={e => handleChange(date, 'visitors', e.target.value === '' ? null : Number(e.target.value))} 
-                      className="border p-1 rounded w-32" 
-                      placeholder="未入力"
-                    />
-                  </td>
-                  <td className="p-3">
+                <div key={date} className={`h-24 p-2 rounded-md border transition-all flex flex-col group relative ${isHoliday ? 'bg-red-50/30 border-red-100' : 'bg-white border-neutral-100 hover:border-neutral-300'}`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`text-xs font-black ${isHoliday ? 'text-red-500' : 'text-neutral-400'}`}>{parseInt(dayNum, 10)}</span>
                     <input 
                       type="checkbox" 
                       checked={isHoliday} 
                       onChange={e => handleChange(date, 'isHoliday', e.target.checked)} 
-                      className="w-5 h-5" 
+                      className="w-3.5 h-3.5 cursor-pointer rounded border-neutral-300 text-red-600 focus:ring-red-500"
                     />
-                  </td>
-                  <td className="p-3">
-                    {v && (
-                      <button onClick={() => handleDeleteVisitor(date)} className="text-red-500 hover:text-red-700 p-1">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                  </div>
+                  <div className="flex-grow flex items-center justify-center">
+                    <input 
+                      type="number" 
+                      data-date={date}
+                      value={v ? v.visitors : ''} 
+                      onChange={e => handleChange(date, 'visitors', e.target.value === '' ? null : Number(e.target.value))}
+                      onPaste={e => handlePasteOnInput(date, e)}
+                      onKeyDown={e => handleKeyDown(date, e)}
+                      className="w-full bg-transparent border-none focus:ring-0 p-0 text-lg font-black text-center outline-none transition-all placeholder:text-neutral-200" 
+                      placeholder="-"
+                    />
+                  </div>
+                  {v && (
+                    <button 
+                      onClick={() => setVisitorToDelete(date)} 
+                      className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-500 transition-opacity"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-neutral-50 text-neutral-600 text-xs uppercase tracking-wider border-b">
+                <th className="p-4">日付</th>
+                <th className="p-4">客数</th>
+                <th className="p-4">休日フラグ</th>
+                <th className="p-4 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {allDays.map((date) => {
+                const v = storeVisitorsMap.get(date);
+                const d = new Date(date);
+                const defaultIsHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+                const isHoliday = v ? v.isHoliday : defaultIsHoliday;
+                
+                return (
+                  <tr key={date} className={isHoliday ? 'bg-red-50/10' : 'hover:bg-neutral-50/50 transition-colors'}>
+                    <td className="p-4 font-mono text-sm font-bold text-neutral-600">{date}</td>
+                    <td className="p-4">
+                      <input 
+                        type="number" 
+                        data-date={date}
+                        value={v ? v.visitors : ''} 
+                        onChange={e => handleChange(date, 'visitors', e.target.value === '' ? null : Number(e.target.value))} 
+                        onPaste={e => handlePasteOnInput(date, e)}
+                        onKeyDown={e => handleKeyDown(date, e)}
+                        className="border border-neutral-200 p-2 rounded-lg w-32 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none font-bold" 
+                        placeholder="未入力"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <input 
+                        type="checkbox" 
+                        checked={isHoliday} 
+                        onChange={e => handleChange(date, 'isHoliday', e.target.checked)} 
+                        className="w-5 h-5 rounded border-neutral-300 text-red-600 focus:ring-red-500" 
+                      />
+                    </td>
+                    <td className="p-4">
+                      {v && (
+                        <button onClick={() => setVisitorToDelete(date)} className="text-neutral-300 hover:text-red-500 p-1 transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <ConfirmModal 
         isOpen={!!visitorToDelete}
         message="この日の客数データを削除してもよろしいですか？"
-        onConfirm={confirmDeleteVisitor}
+        onConfirm={() => {
+          if (visitorToDelete) {
+            setVisitors(prev => prev.filter(v => !(v.storeId === selectedStore && v.date === visitorToDelete)));
+            setVisitorToDelete(null);
+          }
+        }}
         onCancel={() => setVisitorToDelete(null)}
       />
       <ConfirmModal 

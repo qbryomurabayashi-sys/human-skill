@@ -117,7 +117,11 @@ export const MatrixLoading: React.FC<{ onComplete: () => void }> = ({ onComplete
   }, [onComplete]);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center overflow-hidden">
+    <div 
+      onDoubleClick={onComplete}
+      className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center overflow-hidden cursor-pointer"
+      title="Double click to skip"
+    >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-70" />
       
       <div className="relative z-10 flex flex-col items-center max-w-md w-full px-6">
@@ -150,6 +154,10 @@ export const MatrixLoading: React.FC<{ onComplete: () => void }> = ({ onComplete
           {progress > 50 && <p className="animate-pulse">Fetching workforce parameters...</p>}
           {progress > 70 && <p className="animate-pulse">Calculating optimal schedules...</p>}
           {progress > 90 && <p className="animate-pulse">System ready.</p>}
+        </div>
+
+        <div className="mt-4 text-green-500/30 font-mono text-[10px] animate-pulse">
+          DOUBLE CLICK TO SKIP
         </div>
       </div>
     </div>
