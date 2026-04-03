@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { User } from "../App";
-import { ChevronLeft, Send, Info, MessageSquare } from "lucide-react";
+import { User } from "../types";
+import { ChevronLeft, Send, Info, MessageSquare, Calendar } from "lucide-react";
+import { db } from "../firebase";
+import { collection, addDoc, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { handleFirestoreError, OperationType } from "../lib/firebase-utils";
 
 interface WeeklyFormProps {
   user: User;
@@ -20,14 +23,28 @@ export function WeeklyForm({ user, onBack }: WeeklyFormProps) {
     Consultation: "",
   });
   const [lastReport, setLastReport] = useState<any>(null);
+  const [isLoadingLastReport, setIsLoadingLastReport] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const fetchLastReport = async () => {
-      const response = await fetch(`/api/weeklyReports?userId=${user.UserID}&role=${user.Role}`);
-      const data = await response.json();
-      if (data.length > 0) {
-        setLastReport(data[0]);
+      setIsLoadingLastReport(true);
+      try {
+        const q = query(
+          collection(db, "weeklyReports"),
+          where("UserID", "==", user.UserID),
+          orderBy("SubmittedAt", "desc"),
+          limit(1)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          setLastReport(querySnapshot.docs[0].data());
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch last report:", err);
+        handleFirestoreError(err, OperationType.LIST, "weeklyReports");
+      } finally {
+        setIsLoadingLastReport(false);
       }
     };
     fetchLastReport();
@@ -37,17 +54,47 @@ export function WeeklyForm({ user, onBack }: WeeklyFormProps) {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await fetch("/api/saveWeeklyReport", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, UserID: user.UserID }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        alert("週報を送信しました");
-        onBack();
-      }
+      const reportData = {
+        ...formData,
+        UserID: user.UserID,
+        UserName: user.Name,
+        UserArea: user.Area,
+        SubmittedAt: new Date().toISOString(),
+        type: "weekly"
+      };
+
+      await addDoc(collection(db, "weeklyReports"), reportData);
+
+      // Notify peers and superiors
+      let notifyRoles: string[] = [];
+      if (user.Role === "店長") notifyRoles = ["店長", "AM", "BM"];
+      if (user.Role === "AM") notifyRoles = ["AM", "BM"];
+      if (user.Role === "BM") notifyRoles = ["BM"];
+
+      // Fetch users to notify
+      const qUsers = query(collection(db, "users"), where("Role", "in", notifyRoles));
+      const usersSnap = await getDocs(qUsers);
+      
+      const notifications = usersSnap.docs
+        .filter(doc => doc.id !== user.UserID) // Don't notify self
+        .map(userDoc => {
+          return addDoc(collection(db, "notifications"), {
+            UserID: userDoc.id,
+            Title: "週報の提出",
+            Body: `${user.Name}が週報を提出しました。`,
+            Url: "/reports",
+            Read: false,
+            CreatedAt: new Date().toISOString(),
+            Type: "info"
+          });
+        });
+
+      await Promise.all(notifications);
+
+      alert("週報を送信しました");
+      onBack();
     } catch (err) {
+      console.error("Submit error:", err);
       alert("送信に失敗しました");
     } finally {
       setIsLoading(false);
@@ -72,60 +119,82 @@ export function WeeklyForm({ user, onBack }: WeeklyFormProps) {
       </div>
 
       {/* Previous Week Context */}
-      {lastReport && (
+      {isLoadingLastReport ? (
+        <div className="glass-card p-6 rounded-2xl mb-8 border-l-4 border-gray-600 animate-pulse">
+          <p className="text-[10px] font-digital text-gray-500 uppercase tracking-[0.2em]">前回の履歴を取得中...</p>
+        </div>
+      ) : lastReport ? (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass-card p-6 rounded-2xl mb-8 border-l-4 border-neon-orange"
+          className="glass-card p-6 rounded-2xl mb-8 border-l-4 border-neon-blue"
         >
-          <div className="flex items-center gap-2 mb-4">
-            <Info size={14} className="text-neon-orange" />
-            <h3 className="text-[10px] font-digital text-neon-orange uppercase tracking-[0.2em]">前回の振り返りとアドバイス</h3>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">前回決めたアクションプラン</label>
-              <p className="text-sm text-gray-300">{lastReport.NextActionDetail}</p>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Info size={14} className="text-neon-blue" />
+              <h3 className="text-[10px] font-digital text-neon-blue uppercase tracking-[0.2em]">前回の報告内容</h3>
             </div>
-            {(lastReport.AM_Comment || lastReport.BM_Comment) && (
-              <div className="bg-black/40 p-4 rounded-xl border border-white/5">
-                <div className="flex items-start gap-3">
-                  <MessageSquare size={14} className="text-neon-blue mt-1" />
-                  <div className="space-y-2">
-                    {lastReport.AM_Comment && (
-                      <p className="text-xs text-gray-400 italic">
-                        <span className="text-neon-blue font-bold not-italic mr-2">
-                          {lastReport.Comments?.find((c: any) => c.Role === 'AM')?.UserName || 'AM'}:
-                        </span>
-                        {lastReport.AM_Comment}
-                      </p>
-                    )}
-                    {lastReport.BM_Comment && (
-                      <p className="text-xs text-gray-400 italic">
-                        <span className="text-neon-blue font-bold not-italic mr-2">
-                          {lastReport.Comments?.find((c: any) => c.Role === 'BM')?.UserName || 'BM'}:
-                        </span>
-                        {lastReport.BM_Comment}
-                      </p>
-                    )}
-                  </div>
+            <span className="text-[8px] font-digital text-gray-600">{new Date(lastReport.TargetDate).toLocaleDateString()} の報告</span>
+          </div>
+          
+          <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+            <div className="grid grid-cols-1 gap-4">
+              <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">目標</label>
+                <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.Goal || "なし"}</p>
+              </div>
+              <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">結果</label>
+                <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.Result || "なし"}</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                  <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">良かった点・成果</label>
+                  <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.ReviewPlus || "なし"}</p>
+                </div>
+                <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                  <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">課題と気づき</label>
+                  <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.ReviewMinus || "なし"}</p>
                 </div>
               </div>
-            )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                  <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">次週の目的</label>
+                  <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.NextActionPurpose || "なし"}</p>
+                </div>
+                <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                  <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">具体的な行動</label>
+                  <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.NextActionDetail || "なし"}</p>
+                </div>
+              </div>
+              {lastReport.Consultation && (
+                <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                  <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">相談・共有事項</label>
+                  <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.Consultation}</p>
+                </div>
+              )}
+            </div>
           </div>
         </motion.div>
+      ) : (
+        <div className="glass-card p-4 rounded-xl mb-8 border-l-4 border-gray-800 text-gray-600 text-[10px] font-digital uppercase tracking-widest">
+          前回の報告履歴はありません
+        </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="space-y-2">
           <label className="block text-[10px] font-digital text-gray-500 uppercase tracking-[0.2em] ml-1">対象週</label>
-          <input
-            type="date"
-            value={formData.TargetDate}
-            onChange={(e) => setFormData({ ...formData, TargetDate: e.target.value })}
-            className="w-full bg-black/50 border border-gray-800 rounded-lg p-4 focus:border-neon-blue outline-none transition-all font-digital text-neon-blue"
-            required
-          />
+          <div className="relative">
+            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-neon-blue pointer-events-none" size={18} />
+            <input
+              type="date"
+              value={formData.TargetDate}
+              onChange={(e) => setFormData({ ...formData, TargetDate: e.target.value })}
+              className="w-full bg-black/50 border border-gray-800 rounded-lg py-4 pl-12 pr-4 focus:border-neon-blue outline-none transition-all font-digital text-neon-blue"
+              required
+            />
+          </div>
         </div>
 
         <div className="space-y-6">

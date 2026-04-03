@@ -1,11 +1,20 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
-import { User } from "../App";
-import { ChevronLeft, Send, ChartLine } from "lucide-react";
+import { User } from "../types";
+import { ChevronLeft, Send, ChartLine, Info, Plus, Trash2 } from "lucide-react";
+import { db } from "../firebase";
+import { collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
+import { handleFirestoreError, OperationType } from "../lib/firebase-utils";
 
 interface DecadeFormProps {
   user: User;
   onBack: () => void;
+}
+
+interface TaskInput {
+  Assignee: string;
+  Deadline: string;
+  Content: string;
 }
 
 export function DecadeForm({ user, onBack }: DecadeFormProps) {
@@ -15,27 +24,109 @@ export function DecadeForm({ user, onBack }: DecadeFormProps) {
     CoachingRecord: "",
     SelfReflection: "",
   });
+  const [tasks, setTasks] = useState<TaskInput[]>([]);
+  const [lastReport, setLastReport] = useState<any>(null);
+  const [isLoadingLastReport, setIsLoadingLastReport] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  React.useEffect(() => {
+    const fetchLastReport = async () => {
+      setIsLoadingLastReport(true);
+      try {
+        const q = query(
+          collection(db, "decadeReports"),
+          where("UserID", "==", user.UserID),
+          orderBy("SubmittedAt", "desc"),
+          limit(1)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          setLastReport(querySnapshot.docs[0].data());
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch last report:", err);
+        handleFirestoreError(err, OperationType.LIST, "decadeReports");
+      } finally {
+        setIsLoadingLastReport(false);
+      }
+    };
+    fetchLastReport();
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await fetch("/api/saveDecadeReport", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, UserID: user.UserID }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        alert("旬報を送信しました");
-        onBack();
+      const reportData = {
+        ...formData,
+        UserID: user.UserID,
+        UserName: user.Name,
+        UserArea: user.Area,
+        SubmittedAt: new Date().toISOString(),
+        CreatedAt: serverTimestamp(),
+        LikeCount: 0,
+        Likers: [],
+        Comments: []
+      };
+
+      await addDoc(collection(db, "decadeReports"), reportData)
+        .catch(e => handleFirestoreError(e, OperationType.CREATE, "decadeReports"));
+      
+      // Save tasks if any
+      for (const task of tasks) {
+        if (task.Content && task.Deadline && task.Assignee) {
+          await addDoc(collection(db, "tasks"), {
+            Assignee: task.Assignee,
+            Deadline: task.Deadline,
+            Content: task.Content,
+            Status: "pending",
+            CreatedAt: serverTimestamp(),
+            UserID: user.UserID,
+            Source: "decade_report"
+          }).catch(e => handleFirestoreError(e, OperationType.CREATE, "tasks"));
+        }
       }
+
+      // Add notification for BM
+      const qBM = query(collection(db, "users"), where("Role", "==", "BM"), limit(1));
+      const bmSnap = await getDocs(qBM);
+      
+      if (!bmSnap.empty) {
+        const bmId = bmSnap.docs[0].id;
+        await addDoc(collection(db, "notifications"), {
+          UserID: bmId,
+          Title: "新しい旬報が届きました",
+          Body: `${user.Name}が旬報を提出しました。`,
+          Url: "/reports",
+          Read: false,
+          CreatedAt: new Date().toISOString(),
+          Type: "info"
+        });
+      }
+
+      alert("旬報を送信しました");
+      onBack();
     } catch (err) {
       alert("送信に失敗しました");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const addTask = () => {
+    setTasks([...tasks, { Assignee: user.Name, Deadline: "", Content: "" }]);
+  };
+
+  const updateTask = (index: number, field: keyof TaskInput, value: string) => {
+    const newTasks = [...tasks];
+    newTasks[index][field] = value;
+    setTasks(newTasks);
+  };
+
+  const removeTask = (index: number) => {
+    const newTasks = [...tasks];
+    newTasks.splice(index, 1);
+    setTasks(newTasks);
   };
 
   return (
@@ -49,6 +140,47 @@ export function DecadeForm({ user, onBack }: DecadeFormProps) {
           <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] font-digital">AM用：10日ごとの報告</p>
         </div>
       </header>
+
+      {/* Previous Decade Context */}
+      {isLoadingLastReport ? (
+        <div className="glass-card p-6 rounded-2xl mb-8 border-l-4 border-gray-600 animate-pulse">
+          <p className="text-[10px] font-digital text-gray-500 uppercase tracking-[0.2em]">前回の履歴を取得中...</p>
+        </div>
+      ) : lastReport ? (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-6 rounded-2xl mb-8 border-l-4 border-neon-orange"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Info size={14} className="text-neon-orange" />
+              <h3 className="text-[10px] font-digital text-neon-orange uppercase tracking-[0.2em]">前回の振り返り</h3>
+            </div>
+            <span className="text-[8px] font-digital text-gray-600">{lastReport.TargetDecade} の報告</span>
+          </div>
+          <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+            <div className="grid grid-cols-1 gap-4">
+              <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">エリアファクト</label>
+                <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.AreaFact || "なし"}</p>
+              </div>
+              <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">コーチング記録</label>
+                <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.CoachingRecord || "なし"}</p>
+              </div>
+              <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                <label className="text-[8px] text-gray-600 uppercase tracking-widest block mb-1">1つの実験（振り返り）</label>
+                <p className="text-xs text-gray-300 whitespace-pre-wrap">{lastReport.SelfReflection || "なし"}</p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      ) : (
+        <div className="glass-card p-4 rounded-xl mb-8 border-l-4 border-gray-800 text-gray-600 text-[10px] font-digital uppercase tracking-widest">
+          前回の報告履歴はありません
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="space-y-2">
@@ -132,6 +264,81 @@ export function DecadeForm({ user, onBack }: DecadeFormProps) {
                 placeholder="気づき（自己責任）：&#10;来週の実験： "
                 required
               />
+            </div>
+          </div>
+          {/* Section 4: Tasks */}
+          <div className="p-6 glass-card rounded-2xl border-l-4 border-neon-purple bg-neon-purple/5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-neon-purple flex items-center gap-2">
+                <span className="bg-neon-purple text-black px-2 py-0.5 rounded text-[10px] font-digital">04</span>
+                やることリスト（タスク化）
+              </h3>
+              <button
+                type="button"
+                onClick={addTask}
+                className="flex items-center gap-1 text-[10px] text-neon-purple hover:text-white transition-colors bg-neon-purple/20 px-2 py-1 rounded"
+              >
+                <Plus size={12} /> 追加
+              </button>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[9px] text-gray-400 leading-relaxed mb-3">
+                ここで入力したタスクは、タスク管理画面とカレンダーに自動で同期されます。
+              </p>
+              
+              {tasks.length === 0 ? (
+                <div className="text-center text-gray-500 text-[10px] py-4 border border-dashed border-gray-700 rounded-lg">
+                  タスクを追加してください
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tasks.map((task, index) => (
+                    <div key={index} className="bg-black/40 p-3 rounded-xl border border-white/10 relative group">
+                      <button
+                        type="button"
+                        onClick={() => removeTask(index)}
+                        className="absolute -top-2 -right-2 bg-red-500/20 text-red-400 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                          <label className="block text-[8px] text-gray-500 mb-1">誰が</label>
+                          <input
+                            type="text"
+                            value={task.Assignee}
+                            onChange={(e) => updateTask(index, "Assignee", e.target.value)}
+                            className="w-full bg-black/50 border border-gray-800 rounded p-2 text-[10px] text-white focus:border-neon-purple outline-none"
+                            placeholder="担当者"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[8px] text-gray-500 mb-1">いつまでに</label>
+                          <input
+                            type="date"
+                            value={task.Deadline}
+                            onChange={(e) => updateTask(index, "Deadline", e.target.value)}
+                            className="w-full bg-black/50 border border-gray-800 rounded p-2 text-[10px] text-white focus:border-neon-purple outline-none"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[8px] text-gray-500 mb-1">何を</label>
+                        <input
+                          type="text"
+                          value={task.Content}
+                          onChange={(e) => updateTask(index, "Content", e.target.value)}
+                          className="w-full bg-black/50 border border-gray-800 rounded p-2 text-[10px] text-white focus:border-neon-purple outline-none"
+                          placeholder="タスク内容"
+                          required
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
