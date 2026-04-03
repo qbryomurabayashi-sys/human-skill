@@ -384,76 +384,179 @@ const VisitorSettings = () => {
   };
 
   const processImportedData = (data: any[]) => {
-    // data is expected to be an array of objects or arrays
-    // We try to find 'date' and 'visitors' or assume first two columns
     const newEntries: DailyVisitor[] = [];
-    
-    data.forEach((row, index) => {
-      let dateStr = '';
-      let visitorsVal = 0;
-      let storeIdVal = selectedStore;
+    if (data.length === 0) return;
 
-      if (Array.isArray(row)) {
-        if (row.length >= 3) {
-          // Assume [Store, Date, Visitors]
+    // Detect Matrix Format (e.g. Store in rows, Dates in columns)
+    let isMatrix = false;
+    let matrixHeaders: string[] = [];
+    
+    // Check if it's an array of arrays (from paste) or array of objects (from XLSX)
+    if (Array.isArray(data[0])) {
+      const firstRow = data[0].map(h => String(h));
+      const dateLikeCount = firstRow.filter(h => 
+        h.match(/^\d{1,2}\/\d{1,2}$/) || 
+        h.match(/^\d{4}-\d{2}-\d{2}$/) ||
+        h.match(/^\d{1,2}月\d{1,2}日$/) ||
+        h.match(/^\d{4}年\d{1,2}月\d{1,2}日$/)
+      ).length;
+      if (dateLikeCount > 5) {
+        isMatrix = true;
+        matrixHeaders = firstRow;
+      }
+    } else if (typeof data[0] === 'object') {
+      const keys = Object.keys(data[0]);
+      const dateLikeCount = keys.filter(k => 
+        k.match(/^\d{1,2}\/\d{1,2}$/) || 
+        k.match(/^\d{4}-\d{2}-\d{2}$/) ||
+        k.match(/^\d{1,2}月\d{1,2}日$/) ||
+        k.match(/^\d{4}年\d{1,2}月\d{1,2}日$/)
+      ).length;
+      if (dateLikeCount > 5) {
+        isMatrix = true;
+        matrixHeaders = keys;
+      }
+    }
+
+    if (isMatrix) {
+      const rowsToProcess = Array.isArray(data[0]) ? data.slice(1) : data;
+      rowsToProcess.forEach(row => {
+        let storeIdVal = selectedStore;
+        let rowData: any[] = [];
+        let rowObj: any = {};
+
+        if (Array.isArray(row)) {
+          rowData = row;
           const sVal = String(row[0]);
           const foundStore = stores.find(s => s.id === sVal || s.name === sVal);
           if (foundStore) storeIdVal = foundStore.id;
-          dateStr = String(row[1]);
-          visitorsVal = parseInt(String(row[2]), 10);
-        } else if (row.length === 2) {
-          // Assume [Date, Visitors]
-          dateStr = String(row[0]);
-          visitorsVal = parseInt(String(row[1]), 10);
-        } else if (row.length === 1) {
-          // Assume just visitors, starting from 1st of selected month
-          const day = String(index + 1).padStart(2, '0');
-          dateStr = `${selectedMonth}-${day}`;
-          visitorsVal = parseInt(String(row[0]), 10);
-        }
-      } else if (typeof row === 'object') {
-        // Try to find keys
-        const keys = Object.keys(row);
-        const dateKey = keys.find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('日付'));
-        const visitorKey = keys.find(k => k.toLowerCase().includes('visitor') || k.toLowerCase().includes('客数') || k.toLowerCase().includes('count'));
-        const storeKey = keys.find(k => k.toLowerCase().includes('store') || k.toLowerCase().includes('店舗') || k.toLowerCase().includes('店'));
-        
-        if (storeKey) {
-          const val = String(row[storeKey]);
-          const foundStore = stores.find(s => s.id === val || s.name === val);
-          if (foundStore) storeIdVal = foundStore.id;
+        } else {
+          rowObj = row;
+          const storeKey = Object.keys(row).find(k => k.toLowerCase().includes('store') || k.toLowerCase().includes('店舗') || k.toLowerCase().includes('店'));
+          if (storeKey) {
+            const val = String(row[storeKey]);
+            const foundStore = stores.find(s => s.id === val || s.name === val);
+            if (foundStore) storeIdVal = foundStore.id;
+          }
         }
 
-        if (dateKey && visitorKey) {
-          dateStr = String(row[dateKey]);
-          visitorsVal = parseInt(String(row[visitorKey]), 10);
-        } else if (visitorKey) {
-          const day = String(index + 1).padStart(2, '0');
-          dateStr = `${selectedMonth}-${day}`;
-          visitorsVal = parseInt(String(row[visitorKey]), 10);
-        }
-      }
+        matrixHeaders.forEach((header, colIdx) => {
+          if (header.toLowerCase().includes('store') || header.toLowerCase().includes('店舗') || header.toLowerCase().includes('店')) return;
+          
+          let dateStr = header;
+          let visitorsVal = 0;
 
-      // Validate date
-      if (dateStr && !isNaN(visitorsVal)) {
-        // Try to normalize date if it's just a day number
-        if (dateStr.length <= 2 && !isNaN(parseInt(dateStr, 10))) {
-          dateStr = `${selectedMonth}-${dateStr.padStart(2, '0')}`;
+          if (Array.isArray(row)) {
+            visitorsVal = parseInt(String(row[colIdx]), 10);
+          } else {
+            visitorsVal = parseInt(String(row[header]), 10);
+          }
+
+          if (!isNaN(visitorsVal)) {
+            if (dateStr.match(/^\d{1,2}\/\d{1,2}$/)) {
+              const [m, d] = dateStr.split('/');
+              const year = selectedMonth.split('-')[0];
+              dateStr = `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+            } else if (dateStr.match(/^\d{1,2}月\d{1,2}日$/)) {
+              const match = dateStr.match(/^(\d{1,2})月(\d{1,2})日$/);
+              if (match) {
+                const year = selectedMonth.split('-')[0];
+                dateStr = `${year}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+              }
+            } else if (dateStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/)) {
+              const match = dateStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+              if (match) {
+                dateStr = `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+              }
+            }
+
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+              const formattedDate = d.toISOString().split('T')[0];
+              const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+              newEntries.push({
+                date: formattedDate,
+                storeId: storeIdVal,
+                visitors: visitorsVal,
+                isHoliday
+              });
+            }
+          }
+        });
+      });
+    } else {
+      // List Format
+      data.forEach((row, index) => {
+        let dateStr = '';
+        let visitorsVal = 0;
+        let storeIdVal = selectedStore;
+
+        if (Array.isArray(row)) {
+          if (row.length >= 3) {
+            const sVal = String(row[0]);
+            const foundStore = stores.find(s => s.id === sVal || s.name === sVal);
+            if (foundStore) storeIdVal = foundStore.id;
+            dateStr = String(row[1]);
+            visitorsVal = parseInt(String(row[2]), 10);
+          } else if (row.length === 2) {
+            dateStr = String(row[0]);
+            visitorsVal = parseInt(String(row[1]), 10);
+          } else if (row.length === 1) {
+            const day = String(index + 1).padStart(2, '0');
+            dateStr = `${selectedMonth}-${day}`;
+            visitorsVal = parseInt(String(row[0]), 10);
+          }
+        } else if (typeof row === 'object') {
+          const keys = Object.keys(row);
+          const dateKey = keys.find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('日付'));
+          const visitorKey = keys.find(k => k.toLowerCase().includes('visitor') || k.toLowerCase().includes('客数') || k.toLowerCase().includes('count'));
+          const storeKey = keys.find(k => k.toLowerCase().includes('store') || k.toLowerCase().includes('店舗') || k.toLowerCase().includes('店'));
+          
+          if (storeKey) {
+            const val = String(row[storeKey]);
+            const foundStore = stores.find(s => s.id === val || s.name === val);
+            if (foundStore) storeIdVal = foundStore.id;
+          }
+
+          if (dateKey && visitorKey) {
+            dateStr = String(row[dateKey]);
+            visitorsVal = parseInt(String(row[visitorKey]), 10);
+          } else if (visitorKey) {
+            const day = String(index + 1).padStart(2, '0');
+            dateStr = `${selectedMonth}-${day}`;
+            visitorsVal = parseInt(String(row[visitorKey]), 10);
+          }
         }
-        
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime())) {
-          const formattedDate = d.toISOString().split('T')[0];
-          const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
-          newEntries.push({
-            date: formattedDate,
-            storeId: storeIdVal,
-            visitors: visitorsVal,
-            isHoliday
-          });
+
+        if (dateStr && !isNaN(visitorsVal)) {
+          if (dateStr.length <= 2 && !isNaN(parseInt(dateStr, 10))) {
+            dateStr = `${selectedMonth}-${dateStr.padStart(2, '0')}`;
+          } else if (dateStr.match(/^\d{1,2}月\d{1,2}日$/)) {
+            const match = dateStr.match(/^(\d{1,2})月(\d{1,2})日$/);
+            if (match) {
+              const year = selectedMonth.split('-')[0];
+              dateStr = `${year}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+            }
+          } else if (dateStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/)) {
+            const match = dateStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+            if (match) {
+              dateStr = `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+            }
+          }
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            const formattedDate = d.toISOString().split('T')[0];
+            const isHoliday = d.getDay() === 0 || d.getDay() === 6 || isPublicHoliday(d);
+            newEntries.push({
+              date: formattedDate,
+              storeId: storeIdVal,
+              visitors: visitorsVal,
+              isHoliday
+            });
+          }
         }
-      }
-    });
+      });
+    }
 
     if (newEntries.length > 0) {
       setVisitors(prev => {
@@ -578,18 +681,18 @@ const VisitorSettings = () => {
   const downloadTemplate = () => {
     const data: any[] = [];
     stores.forEach(store => {
+      const row: any = { '店舗名': store.name };
       allDays.forEach(date => {
-        data.push({
-          店舗名: store.name,
-          日付: date,
-          客数: ''
-        });
+        const d = new Date(date);
+        const dateLabel = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+        row[dateLabel] = '';
       });
+      data.push(row);
     });
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Template");
-    XLSX.writeFile(wb, `visitor_template_all_stores_${selectedMonth}.xlsx`);
+    XLSX.writeFile(wb, `visitor_template_matrix_${selectedMonth}.xlsx`);
   };
 
   const changeMonth = (delta: number) => {
@@ -708,6 +811,10 @@ const VisitorSettings = () => {
           <div className="flex items-start space-x-2 text-[10px] text-neutral-400">
             <div className="mt-0.5">•</div>
             <p>日付が「2026-04-01」形式であれば、他の月や店舗のデータも一括で取り込めます。</p>
+          </div>
+          <div className="flex items-start space-x-2 text-[10px] text-neutral-400">
+            <div className="mt-0.5">•</div>
+            <p>1行目に日付（2025年5月1日など）、1列目に店舗名が並ぶ「マトリックス形式」にも対応しています。</p>
           </div>
         </div>
       </div>
